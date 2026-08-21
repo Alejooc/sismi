@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.1] — 2026-08-21
+
+### Mejoras
+
+- Consulta automática de las fuentes cada 30 segundos.
+- Información separada entre la hora en que ocurrió el sismo y la hora en que Sismi lo detectó.
+- Cálculo aproximado del retraso de publicación visible en los detalles del evento.
+- Notificaciones con la hora de detección para facilitar la verificación.
+
 ## [0.1.0] — 2026-08-21
 
 Primera versión pública de Sismi para Windows.

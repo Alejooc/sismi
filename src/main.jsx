@@ -119,6 +119,7 @@ function App() {
   const minMagnitudeRef = useRef(minMagnitude)
   const alertScopeRef = useRef(alertScope)
   const knownEventIds = useRef(new Set(initialEvents.map((event) => getEventKey(event))))
+  const detectedAtByKey = useRef(new Map())
   const hasLoadedFeed = useRef(false)
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
@@ -166,7 +167,7 @@ function App() {
   useEffect(() => {
     const controller = new AbortController()
     loadFeed(controller.signal)
-    const interval = window.setInterval(() => loadFeed(), 60000)
+    const interval = window.setInterval(() => loadFeed(), 30000)
     return () => { controller.abort(); window.clearInterval(interval) }
   }, [])
 
@@ -176,16 +177,20 @@ function App() {
     setRefreshing(true)
     try {
       const freshEvents = await fetchEarthquakes(signal)
+      const detectedAt = Date.now()
       const alertCutoff = lastSuccessfulFeedAt.current - 15 * 60 * 1000
       const newEvents = hasLoadedFeed.current
         ? freshEvents.filter((event) => !knownEventIds.current.has(getEventKey(event)) && event.timestamp >= alertCutoff)
         : []
-      if (freshEvents.length > 0) setEvents(freshEvents)
+      newEvents.forEach((event) => detectedAtByKey.current.set(getEventKey(event), detectedAt))
+      const eventsWithDetection = freshEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
+      const newlyDetectedEvents = newEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
+      if (freshEvents.length > 0) setEvents(eventsWithDetection)
       setSourceStatus([...new Set(freshEvents.map((event) => event.source))].join(' + '))
       freshEvents.forEach((event) => knownEventIds.current.add(getEventKey(event)))
       hasLoadedFeed.current = true
       lastSuccessfulFeedAt.current = Date.now()
-      if (notificationsRef.current && newEvents.length > 0) announceAlerts(newEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current)
+      if (notificationsRef.current && newlyDetectedEvents.length > 0) announceAlerts(newlyDetectedEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current)
       setFeedError(null)
       setLastChecked('ahora')
     } catch (error) {
@@ -216,7 +221,8 @@ function App() {
       setTestNotificationStatus('Permiso no concedido. Revisa las notificaciones de Windows.')
       return
     }
-    const testAlert = { id: 'test-alert', place: 'Simulación de Sismi', magnitudeLabel: '4.8', magnitudeType: 'ML', depth: '12 km', source: 'PRUEBA', tone: 'amber', timeLabel: 'Ahora', isTest: true }
+    const testTime = Date.now()
+    const testAlert = { id: 'test-alert', place: 'Simulación de Sismi', magnitudeLabel: '4.8', magnitudeType: 'ML', depth: '12 km', source: 'PRUEBA', tone: 'amber', timeLabel: 'Ahora', timestamp: testTime, detectedAt: testTime, isTest: true }
     setActiveAlert(testAlert)
     await playAlertSound()
     await notifyEvent(testAlert)
@@ -331,7 +337,7 @@ function App() {
         {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
-        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} conectados</span><span>v0.1</span></footer>
+        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} conectados</span><span>v0.1.1</span></footer>
       </section>
     </main>
   )
@@ -342,7 +348,7 @@ function AppLoader() {
 }
 
 function EarthquakeAlert({ event, onClose }) {
-  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'PRUEBA DE ALERTA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
+  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'PRUEBA DE ALERTA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Detectado ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
 function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, close }) {
@@ -388,7 +394,7 @@ function AboutPanel() {
     <div className="about-content">
       <div className="about-hero">
         <div className="about-logo"><span /><img src="/sismi-logo.png" alt="Logo de Sismi" /></div>
-        <div><span className="about-kicker">MONITOREO SÍSMICO</span><h3>Sismi</h3><p>Información clara para estar preparado</p><span className="about-version">Versión 0.1.0</span></div>
+        <div><span className="about-kicker">MONITOREO SÍSMICO</span><h3>Sismi</h3><p>Información clara para estar preparado</p><span className="about-version">Versión 0.1.1</span></div>
       </div>
       <p className="about-intro">Sismi reúne información sísmica reciente en un panel pequeño, claro y siempre disponible desde la bandeja del sistema.</p>
 
@@ -645,14 +651,20 @@ function EarthquakeMap({ event }) {
 
 function EventDetails({ event, distanceKm, onClose }) {
   const metadata = event.metadata || {}
-  const items = [['ID del evento', metadata.eventId || event.id], ['Fuente / red', `${metadata.agency || event.source} · ${event.source}`], ['Código de red', metadata.networkCode || '—'], ['Estado', metadata.status || '—'], ['Hora local', metadata.localTime || event.timeLabel], ['Hora UTC', metadata.utcTime || '—'], ['Actualizado', metadata.updated || '—'], ['Coordenadas', `${formatValue(event.latitude)}, ${formatValue(event.longitude)}`], ['Distancia', Number.isFinite(distanceKm) ? `${distanceKm} km` : '—'], ['Magnitud', `${event.magnitudeLabel} ${event.magnitudeType}`], ['Profundidad', event.depth], ['Reportes sentidos', metadata.felt ?? '—'], ['Intensidad CDI / MMI', `${metadata.cdi ?? '—'} / ${metadata.mmi ?? '—'}`], ['Nivel de alerta', metadata.alert || '—'], ['Estaciones', metadata.nst ?? '—'], ['RMS', metadata.rms ?? '—'], ['Gap', metadata.gap ? `${metadata.gap}°` : '—'], ['Distancia mínima', metadata.dmin ?? '—'], ['Significancia', metadata.significance ?? '—'], ['Tsunami', metadata.tsunami === null || metadata.tsunami === undefined ? '—' : metadata.tsunami ? 'Sí' : 'No'], ['Poblaciones cercanas', metadata.closestTowns || '—'], ['Código del evento', metadata.eventCode || '—'], ['Tipos de evento', metadata.eventTypes || '—']]
+  const items = [['ID del evento', metadata.eventId || event.id], ['Fuente / red', `${metadata.agency || event.source} · ${event.source}`], ['Código de red', metadata.networkCode || '—'], ['Estado', metadata.status || '—'], ['Hora del sismo', metadata.localTime || event.timeLabel], ['Detectado por Sismi', event.detectedAt ? `${formatClock(event.detectedAt)}${formatDetectionLag(event)}` : '—'], ['Hora UTC', metadata.utcTime || '—'], ['Actualizado', metadata.updated || '—'], ['Coordenadas', `${formatValue(event.latitude)}, ${formatValue(event.longitude)}`], ['Distancia', Number.isFinite(distanceKm) ? `${distanceKm} km` : '—'], ['Magnitud', `${event.magnitudeLabel} ${event.magnitudeType}`], ['Profundidad', event.depth], ['Reportes sentidos', metadata.felt ?? '—'], ['Intensidad CDI / MMI', `${metadata.cdi ?? '—'} / ${metadata.mmi ?? '—'}`], ['Nivel de alerta', metadata.alert || '—'], ['Estaciones', metadata.nst ?? '—'], ['RMS', metadata.rms ?? '—'], ['Gap', metadata.gap ? `${metadata.gap}°` : '—'], ['Distancia mínima', metadata.dmin ?? '—'], ['Significancia', metadata.significance ?? '—'], ['Tsunami', metadata.tsunami === null || metadata.tsunami === undefined ? '—' : metadata.tsunami ? 'Sí' : 'No'], ['Poblaciones cercanas', metadata.closestTowns || '—'], ['Código del evento', metadata.eventCode || '—'], ['Tipos de evento', metadata.eventTypes || '—']]
   return <div className="details-overlay" role="presentation" onClick={onClose}><section className="details-sheet" role="dialog" aria-modal="true" aria-label="Información completa del sismo" onClick={(eventClick) => eventClick.stopPropagation()}><header className="details-header"><div><p>Información del evento</p><h2>{event.place}</h2></div><button className="icon-button" onClick={onClose} aria-label="Cerrar detalles"><Icon name="close" size={17} /></button></header><div className="details-hero"><strong>{event.magnitudeLabel}</strong><div><span>{event.magnitudeType} · {event.source}</span><small>{event.timeLabel}</small></div></div><EarthquakeMap event={event} /><div className="details-grid">{items.map(([label, value]) => <div className="detail-item" key={label}><span>{label}</span><strong>{formatValue(value)}</strong></div>)}</div><p className="source-note">Datos mostrados dentro de Sismi desde las fuentes oficiales disponibles.</p></section></div>
 }
 
 function isNearby(event, center) { const distanceKm = distanceBetween(center, event); return Number.isFinite(distanceKm) && distanceKm <= center.radiusKm }
+function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
+function formatDetectionLag(event) {
+  if (!Number.isFinite(event?.detectedAt) || !Number.isFinite(event?.timestamp)) return ''
+  const minutes = Math.max(0, Math.round((event.detectedAt - event.timestamp) / 60000))
+  return ` · retraso ${minutes < 1 ? 'menor a 1 min' : `${minutes} min`}`
+}
 function formatValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Sí' : 'No'; return String(value) }
 function readStoredValue(key, fallback) { try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : fallback } catch { return fallback } }
 function writeStoredValue(key, value) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* almacenamiento opcional */ } }
-async function notifyEvent(event) { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}`, tag: `sismi-alert-${event.id}` }) }
+async function notifyEvent(event) { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}${event.detectedAt ? ` · Detectado ${formatClock(event.detectedAt)}` : ''}`, tag: `sismi-alert-${event.id}` }) }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)

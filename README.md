@@ -85,7 +85,7 @@ Las fuentes pueden publicar un mismo evento con tiempos, magnitudes o identifica
 
 ## Estado del proyecto
 
-Sismi se encuentra en una primera versión pública (`v0.1.0`). Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
+La versión pública actual es `v0.1.1`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
 
 ## Licencia
 
