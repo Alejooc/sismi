@@ -1,0 +1,36 @@
+name: Compilar Sismi para Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias web
+        run: npm ci
+
+      - name: Preparar Rust estable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compilar ejecutable portable
+        run: npm run desktop:build
+
+      - name: Publicar artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: sismi-windows
+          path: src-tauri/target/release/sismi.exe

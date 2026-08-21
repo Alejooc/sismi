@@ -1,0 +1,78 @@
+export function isDesktopApp() {
+  return typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__)
+}
+
+export async function minimizeWindow() {
+  if (!isDesktopApp()) return
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  await getCurrentWindow().hide()
+}
+
+export async function closeWindow() {
+  if (!isDesktopApp()) return
+  const { getCurrentWindow } = await import('@tauri-apps/api/window')
+  await getCurrentWindow().hide()
+}
+
+export async function requestNotificationPermission() {
+  // El aviso nativo registra su propia identidad de Windows al enviarse.
+  // El plugin de permisos no reconoce correctamente el ejecutable portable.
+  if (isDesktopApp()) return true
+
+  if (!('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  return (await Notification.requestPermission()) === 'granted'
+}
+
+export async function notifyDesktop(payload) {
+  if (isDesktopApp()) {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('send_sismi_notification', { title: payload.title, body: payload.body })
+    return
+  }
+
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(payload.title, { body: payload.body, icon: '/sismi-logo.png', requireInteraction: true, tag: payload.tag || `sismi-alert-${Date.now()}` })
+  }
+}
+
+export async function playAlertSound() {
+  if (typeof window === 'undefined') return
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext
+    if (!AudioContext) return
+    const context = new AudioContext()
+    await context.resume()
+    const start = context.currentTime
+    const notes = [
+      { at: 0, frequency: 988 },
+      { at: 0.18, frequency: 1319 },
+      { at: 0.36, frequency: 988 },
+      { at: 0.54, frequency: 1319 },
+      { at: 1.02, frequency: 988 },
+      { at: 1.2, frequency: 1319 },
+      { at: 1.38, frequency: 988 },
+      { at: 1.56, frequency: 1319 },
+      { at: 2.04, frequency: 988 },
+      { at: 2.22, frequency: 1319 },
+      { at: 2.4, frequency: 988 },
+      { at: 2.58, frequency: 1319 },
+    ]
+    notes.forEach(({ at, frequency }) => {
+      const oscillator = context.createOscillator()
+      const gain = context.createGain()
+      oscillator.type = 'square'
+      oscillator.frequency.setValueAtTime(frequency, start + at)
+      gain.gain.setValueAtTime(0.0001, start + at)
+      gain.gain.exponentialRampToValueAtTime(0.34, start + at + 0.018)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.14)
+      oscillator.connect(gain)
+      gain.connect(context.destination)
+      oscillator.start(start + at)
+      oscillator.stop(start + at + 0.15)
+    })
+    window.setTimeout(() => context.close(), 3600)
+  } catch {
+    // El sonido es un refuerzo opcional; la alerta visual y la notificación continúan.
+  }
+}
