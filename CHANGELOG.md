@@ -1,5 +1,11 @@
 # Historial de versiones
 
+## [0.1.17] — 2026-08-24
+
+### Corrección de actualización SGC
+
+- Publicación de reemplazo para asegurar que instalaciones `v0.1.16` reciban el fallback del SGC.
+
 ## [0.1.16] — 2026-08-24
 
 ### Disponibilidad del SGC
