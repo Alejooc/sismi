@@ -76,7 +76,7 @@ pub fn run() {
 }
 
 #[tauri::command]
-fn send_sismi_notification(title: String, body: String) -> Result<(), String> {
+fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(), String> {
     #[cfg(windows)]
     {
         use tauri_winrt_notification::{Duration, LoopableSound, Sound, Toast};
@@ -92,13 +92,13 @@ fn send_sismi_notification(title: String, body: String) -> Result<(), String> {
             .title(&title)
             .text1(&body)
             .duration(Duration::Long)
-            .sound(Some(Sound::Single(LoopableSound::Alarm)))
+            .sound(if sound { Some(Sound::Single(LoopableSound::Alarm)) } else { None })
             .show()
             .map_err(|error| format!("Windows no pudo mostrar el aviso: {error}"))?;
     }
 
     #[cfg(not(windows))]
-    let _ = (title, body);
+    let _ = (title, body, sound);
 
     Ok(())
 }
@@ -107,7 +107,7 @@ fn send_sismi_notification(title: String, body: String) -> Result<(), String> {
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.13")
+        .user_agent("Sismi/0.1.14")
         .build()
         .map_err(|error| format!("No se pudo preparar la consulta de SGC: {error}"))?;
     let query = json!({

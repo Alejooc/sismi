@@ -82,6 +82,10 @@ const DEFAULT_EMERGENCY_CONTACTS = [
   { id: 'firefighters-119', name: 'Bomberos', number: '119', note: 'Reporte de emergencias', isDefault: true },
 ]
 
+const ALERT_SOUND_OPTIONS = ['intense', 'brief', 'silent']
+const ALERT_SOURCE_OPTIONS = ['all', 'SGC', 'USGS']
+const DEFAULT_ALERT_RULE = { minMagnitude: 3, source: 'all', quietHoursEnabled: false, quietHoursStart: '22:00', quietHoursEnd: '07:00', sound: 'intense', maxAlertsPerUpdate: 3 }
+
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }
   const paths = {
@@ -129,8 +133,8 @@ function App() {
   const [location, setLocation] = useState(() => readStoredValue('sismi-location', DEFAULT_LOCATION))
   const [locationMode, setLocationMode] = useState(() => readStoredValue('sismi-location-mode', 'search') === 'auto' ? 'auto' : 'search')
   const [locationStatus, setLocationStatus] = useState('Elige una ciudad o usa la ubicación de este equipo.')
-  const [minMagnitude, setMinMagnitude] = useState(() => readStoredValue('sismi-min-magnitude', 3))
   const [alertScope, setAlertScope] = useState(() => readStoredValue('sismi-alert-scope', 'nearby') === 'global' ? 'global' : 'nearby')
+  const [alertRules, setAlertRules] = useState(readAlertRules)
   const [historyQuery, setHistoryQuery] = useState('')
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [activeAlert, setActiveAlert] = useState(null)
@@ -144,8 +148,15 @@ function App() {
   const [mapOnlyNearby, setMapOnlyNearby] = useState(false)
   const notificationsRef = useRef(notifications)
   const locationRef = useRef(location)
-  const minMagnitudeRef = useRef(minMagnitude)
   const alertScopeRef = useRef(alertScope)
+  const activeAlertRule = alertRules[alertScope]
+  const minMagnitudeRef = useRef(activeAlertRule.minMagnitude)
+  const alertSourceRef = useRef(activeAlertRule.source)
+  const quietHoursEnabledRef = useRef(activeAlertRule.quietHoursEnabled)
+  const quietHoursStartRef = useRef(activeAlertRule.quietHoursStart)
+  const quietHoursEndRef = useRef(activeAlertRule.quietHoursEnd)
+  const alertSoundRef = useRef(activeAlertRule.sound)
+  const maxAlertsPerUpdateRef = useRef(activeAlertRule.maxAlertsPerUpdate)
   const knownEventIds = useRef(new Set(initialEvents.map((event) => getEventKey(event))))
   const detectedAtByKey = useRef(new Map())
   const hasLoadedFeed = useRef(false)
@@ -187,6 +198,10 @@ function App() {
   const statusLabel = feedError ? 'Sin conexión' : notifications ? 'Vigilancia activa' : 'Avisos pausados'
   const monitoringLabel = alertScope === 'global' ? 'Todo el mundo' : location.label
 
+  function updateAlertRule(field, value) {
+    setAlertRules((current) => ({ ...current, [alertScope]: { ...current[alertScope], [field]: value } }))
+  }
+
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
   useEffect(() => { locationRef.current = location; writeStoredValue('sismi-location', location) }, [location])
   useEffect(() => {
@@ -205,8 +220,18 @@ function App() {
     loadFeed()
   }, [location.lat, location.lon])
   useEffect(() => { writeStoredValue('sismi-location-mode', locationMode) }, [locationMode])
-  useEffect(() => { minMagnitudeRef.current = minMagnitude; writeStoredValue('sismi-min-magnitude', minMagnitude) }, [minMagnitude])
-  useEffect(() => { alertScopeRef.current = alertScope; writeStoredValue('sismi-alert-scope', alertScope) }, [alertScope])
+  useEffect(() => {
+    alertScopeRef.current = alertScope
+    minMagnitudeRef.current = activeAlertRule.minMagnitude
+    alertSourceRef.current = activeAlertRule.source
+    quietHoursEnabledRef.current = activeAlertRule.quietHoursEnabled
+    quietHoursStartRef.current = activeAlertRule.quietHoursStart
+    quietHoursEndRef.current = activeAlertRule.quietHoursEnd
+    alertSoundRef.current = activeAlertRule.sound
+    maxAlertsPerUpdateRef.current = activeAlertRule.maxAlertsPerUpdate
+    writeStoredValue('sismi-alert-scope', alertScope)
+    writeStoredValue('sismi-alert-rules', alertRules)
+  }, [activeAlertRule, alertRules, alertScope])
   useEffect(() => { document.documentElement.dataset.theme = theme; writeStoredValue('sismi-theme', theme) }, [theme])
   useEffect(() => {
     if (isDesktopApp()) document.documentElement.classList.add('native-window')
@@ -252,7 +277,7 @@ function App() {
       hasLoadedFeed.current = true
       lastSuccessfulFeedAt.current = Date.now()
       setLastSyncAt(detectedAt)
-      if (notificationsRef.current && newlyDetectedEvents.length > 0) announceAlerts(newlyDetectedEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current)
+      if (notificationsRef.current && newlyDetectedEvents.length > 0) announceAlerts(newlyDetectedEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current, alertSourceRef.current)
       setFeedError(null)
       setLastChecked(formatClock(detectedAt))
     } catch (error) {
@@ -286,8 +311,8 @@ function App() {
     const testTime = Date.now()
     const testAlert = { id: 'test-alert', place: 'Simulación de Sismi', magnitudeLabel: '4.8', magnitudeType: 'ML', depth: '12 km', source: 'PRUEBA', tone: 'amber', timeLabel: 'Ahora', timestamp: testTime, detectedAt: testTime, isTest: true }
     setActiveAlert(testAlert)
-    await playAlertSound()
-    await notifyEvent(testAlert)
+    await playAlertSound(alertSoundRef.current)
+    await notifyEvent(testAlert, alertSoundRef.current)
     setTestNotificationStatus('Alerta enviada correctamente.')
   }
 
@@ -319,18 +344,22 @@ function App() {
     }
   }
 
-  async function announceAlerts(candidateEvents, center, threshold, scope) {
+  async function announceAlerts(candidateEvents, center, threshold, scope, source) {
+    if (quietHoursEnabledRef.current && isQuietHoursNow(quietHoursStartRef.current, quietHoursEndRef.current)) return
+
     const eligibleEvents = candidateEvents.filter((event) => (
       event.magnitude >= threshold
       && (scope === 'global' || isNearby(event, center))
+      && (source === 'all' || event.source === source)
       && !alertedEventKeys.current.has(getEventKey(event))
     ))
     if (eligibleEvents.length === 0) return
 
     eligibleEvents.forEach((event) => alertedEventKeys.current.add(getEventKey(event)))
-    setActiveAlert(eligibleEvents[0])
-    await playAlertSound()
-    await Promise.allSettled(eligibleEvents.map((event) => notifyEvent(event)))
+    const eventsToNotify = eligibleEvents.slice(0, maxAlertsPerUpdateRef.current)
+    setActiveAlert(eventsToNotify[0])
+    if (alertSoundRef.current !== 'silent') await playAlertSound(alertSoundRef.current)
+    await Promise.allSettled(eventsToNotify.map((event) => notifyEvent(event, alertSoundRef.current)))
   }
 
   function selectSearchedLocation(place) {
@@ -409,7 +438,7 @@ function App() {
 
             <div className="quick-grid">
               <div className="quick-stat"><span>Sismos cercanos</span><strong>{nearbyCount}</strong><small>últimas 24 horas</small></div>
-              <div className="quick-stat"><span>{alertScope === 'global' ? 'Cobertura de alertas' : 'Radio activo'}</span><strong>{alertScope === 'global' ? 'Mundial' : `${location.radiusKm} km`}</strong><small>{alertScope === 'global' ? `Magnitud mínima ${Number(minMagnitude).toFixed(1)}` : location.label}</small></div>
+              <div className="quick-stat"><span>{alertScope === 'global' ? 'Cobertura de alertas' : 'Radio activo'}</span><strong>{alertScope === 'global' ? 'Mundial' : `${location.radiusKm} km`}</strong><small>{alertScope === 'global' ? `Magnitud mínima ${Number(activeAlertRule.minMagnitude).toFixed(1)}` : location.label}</small></div>
             </div>
 
             <section className="recent-section">
@@ -430,7 +459,7 @@ function App() {
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude: activeAlertRule.minMagnitude, setMinMagnitude: (value) => updateAlertRule('minMagnitude', value), alertScope, setAlertScope, alertSource: activeAlertRule.source, setAlertSource: (value) => updateAlertRule('source', value), quietHoursEnabled: activeAlertRule.quietHoursEnabled, setQuietHoursEnabled: (value) => updateAlertRule('quietHoursEnabled', value), quietHoursStart: activeAlertRule.quietHoursStart, setQuietHoursStart: (value) => updateAlertRule('quietHoursStart', value), quietHoursEnd: activeAlertRule.quietHoursEnd, setQuietHoursEnd: (value) => updateAlertRule('quietHoursEnd', value), alertSound: activeAlertRule.sound, setAlertSound: (value) => updateAlertRule('sound', value), maxAlertsPerUpdate: activeAlertRule.maxAlertsPerUpdate, setMaxAlertsPerUpdate: (value) => updateAlertRule('maxAlertsPerUpdate', value), notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
         <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
@@ -447,7 +476,7 @@ function EarthquakeAlert({ event, onClose, onSafety }) {
   return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p><button className="alert-safety-link" onClick={onSafety}><Icon name="shield" size={13} />Qué hacer ahora</button></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
+function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, alertSource, setAlertSource, quietHoursEnabled, setQuietHoursEnabled, quietHoursStart, setQuietHoursStart, quietHoursEnd, setQuietHoursEnd, alertSound, setAlertSound, maxAlertsPerUpdate, setMaxAlertsPerUpdate, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
       <header className="drawer-heading"><div><button className="back-button" onClick={safetyOpen ? () => setSafetyOpen(false) : aboutOpen ? () => setAboutOpen(false) : close} aria-label={safetyOpen || aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{safetyOpen ? 'Modo seguridad' : aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{safetyOpen ? 'Guía disponible sin conexión' : aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
@@ -468,12 +497,19 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
 
         <section className="settings-section">
           <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Elige qué sismos quieres recibir</span></div></div>
-          <div className="alert-scope-label"><span>Dónde recibir avisos</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
+          <div className="alert-scope-label"><span>Regla activa para estos avisos</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
           <div className="alert-scope-picker" role="group" aria-label="Dónde recibir avisos">
             <button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')} aria-pressed={alertScope === 'nearby'}><span><Icon name="locate" size={17} /></span><div><strong>Mi zona</strong><small>{location.isCountry ? `En todo ${location.label}` : `Dentro de ${location.radiusKm} km de ${location.label}`}</small></div>{alertScope === 'nearby' && <Icon name="check" size={17} />}</button>
             <button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')} aria-pressed={alertScope === 'global'}><span><Icon name="globe" size={17} /></span><div><strong>Todo el mundo</strong><small>Recibe avisos de cualquier país</small></div>{alertScope === 'global' && <Icon name="check" size={17} />}</button>
           </div>
+          <p className="setting-note">Estas preferencias se guardan por separado para Mi zona y Todo el mundo.</p>
           <label className="range-field"><span><span>Magnitud mínima</span><strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="1" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
+          <label className="select-field"><span>Fuente de los avisos</span><select value={alertSource} onChange={(event) => setAlertSource(event.target.value)} aria-label="Fuente de los avisos"><option value="all">SGC y USGS</option><option value="SGC">Solo SGC</option><option value="USGS">Solo USGS</option></select></label>
+          <label className="select-field"><span>Máximo de avisos por actualización</span><select value={maxAlertsPerUpdate} onChange={(event) => setMaxAlertsPerUpdate(Number(event.target.value))} aria-label="Máximo de avisos por actualización">{[1, 3, 5, 10].map((value) => <option key={value} value={value}>{value} {value === 1 ? 'aviso' : 'avisos'}</option>)}</select></label>
+          <div className="setting-row"><div><strong>Sonido de alerta</strong><span>Elige cómo quieres escucharla</span></div><select className="inline-select" value={alertSound} onChange={(event) => setAlertSound(event.target.value)} aria-label="Sonido de alerta"><option value="intense">Alerta intensa</option><option value="brief">Aviso corto</option><option value="silent">Solo aviso visual</option></select></div>
+          <div className="setting-row quiet-setting-row"><div><strong>Horario silencioso</strong><span>Silencia avisos y sonidos durante este horario</span></div><button className={`toggle ${quietHoursEnabled ? 'on' : ''}`} onClick={() => setQuietHoursEnabled((current) => !current)} aria-label="Activar o desactivar horario silencioso" aria-pressed={quietHoursEnabled}><span /></button></div>
+          {quietHoursEnabled && <div className="quiet-hours-fields"><label>Desde<input type="time" value={quietHoursStart} onChange={(event) => setQuietHoursStart(event.target.value)} aria-label="Inicio del horario silencioso" /></label><label>Hasta<input type="time" value={quietHoursEnd} onChange={(event) => setQuietHoursEnd(event.target.value)} aria-label="Fin del horario silencioso" /></label><p>Los sismos seguirán apareciendo en el historial, pero no enviarán aviso durante este horario.</p></div>}
+          <p className="alert-rule-note"><Icon name="check" size={14} /><span>{alertScope === 'global' ? 'Todo el mundo avisa sin filtrar por distancia.' : `Mi zona respeta el radio de ${location.radiusKm} km.`} La magnitud mínima y la fuente elegida también se aplican.</span></p>
           <div className="setting-row"><div><strong>Avisos en el escritorio</strong><span>Sonido y aviso de Windows</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar avisos"><span /></button></div>
           <button className="secondary-button" onClick={testNotification}><Icon name="bell" size={15} /> Probar aviso</button>
           <p className="test-alert-status" role="status">{testNotificationStatus || 'Haz una prueba para confirmar que todo funciona.'}</p>
@@ -560,7 +596,6 @@ function SafetyPanel() {
     ]
 
   return <div className="safety-content">
-    <div className="safety-banner"><span className="safety-banner-icon"><Icon name="shield" size={20} /></span><div><strong>Guía rápida para una emergencia</strong><p>Esta información está guardada en Sismi y se puede consultar sin conexión.</p></div></div>
     <div className="safety-guide-tabs" role="tablist" aria-label="Guía de seguridad"><button className={guideTab === 'during' ? 'selected' : ''} onClick={() => setGuideTab('during')} role="tab" aria-selected={guideTab === 'during'}>Durante el sismo</button><button className={guideTab === 'after' ? 'selected' : ''} onClick={() => setGuideTab('after')} role="tab" aria-selected={guideTab === 'after'}>Después</button></div>
     <section className="safety-guide-section"><div className="safety-section-heading"><span>{guideTab === 'during' ? '01' : '02'}</span><div><strong>{guideTab === 'during' ? 'Mientras está temblando' : 'Cuando termine el movimiento'}</strong><small>Prioriza tu seguridad y la de quienes están contigo.</small></div></div><div className="safety-steps">{steps.map(([title, detail], index) => <div className="safety-step" key={title}><span>{index + 1}</span><div><strong>{title}</strong><p>{detail}</p></div></div>)}</div></section>
     <section className="safety-contacts-section"><div className="safety-section-heading"><span><Icon name="phone" size={15} /></span><div><strong>Contactos de emergencia</strong><small>Líneas frecuentes en Colombia y contactos guardados.</small></div></div><div className="safety-contact-list">{contacts.map((contact) => <div className="safety-contact" key={contact.id}><span className="safety-contact-icon"><Icon name="phone" size={14} /></span><div><strong>{contact.name}</strong><small>{contact.note}</small></div><a className="contact-call" href={`tel:${contact.number.replace(/[^0-9+#*]/g, '')}`} aria-label={`Llamar a ${contact.name}`}>{contact.number}</a><button className="contact-copy" onClick={() => copyContact(contact)}>Copiar</button>{!contact.isDefault && <button className="contact-remove" onClick={() => setContacts((current) => current.filter((item) => item.id !== contact.id))} aria-label={`Eliminar ${contact.name}`}>×</button>}</div>)}</div><button className="safety-add-contact" onClick={() => setAddingContact((current) => !current)}><Icon name={addingContact ? 'close' : 'plus'} size={14} />{addingContact ? 'Cancelar' : 'Agregar contacto'}</button>{addingContact && <form className="contact-form" onSubmit={addContact}><input value={newContact.name} onChange={(event) => setNewContact((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre" aria-label="Nombre del contacto" /><input value={newContact.number} onChange={(event) => setNewContact((current) => ({ ...current, number: event.target.value }))} placeholder="Número" aria-label="Número del contacto" inputMode="tel" /><input value={newContact.note} onChange={(event) => setNewContact((current) => ({ ...current, note: event.target.value }))} placeholder="Descripción opcional" aria-label="Descripción del contacto" /><button className="secondary-button" type="submit">Guardar contacto</button></form>}{contactNotice && <p className="contact-notice" role="status">{contactNotice}</p>}</section>
@@ -917,6 +952,20 @@ function EventDetails({ event, distanceKm, onClose }) {
 }
 
 function isNearby(event, center) { const distanceKm = distanceBetween(center, event); return Number.isFinite(distanceKm) && distanceKm <= center.radiusKm }
+function isQuietHoursNow(start, end) {
+  const toMinutes = (value) => {
+    const [hours, minutes] = String(value).split(':').map(Number)
+    return (hours * 60) + minutes
+  }
+  const current = new Date()
+  const currentMinutes = (current.getHours() * 60) + current.getMinutes()
+  const startMinutes = toMinutes(start)
+  const endMinutes = toMinutes(end)
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || startMinutes === endMinutes) return false
+  return startMinutes < endMinutes
+    ? currentMinutes >= startMinutes && currentMinutes < endMinutes
+    : currentMinutes >= startMinutes || currentMinutes < endMinutes
+}
 function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatSyncTime(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatDetectionLag(event) {
@@ -927,6 +976,33 @@ function formatDetectionLag(event) {
 function formatValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Sí' : 'No'; return String(value) }
 function readStoredValue(key, fallback) { try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : fallback } catch { return fallback } }
 function writeStoredValue(key, value) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* almacenamiento opcional */ } }
-async function notifyEvent(event) { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}${event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}`, tag: `sismi-alert-${event.id}` }) }
+function readAlertRules() {
+  const saved = readStoredValue('sismi-alert-rules', {})
+  const legacy = {
+    minMagnitude: readStoredValue('sismi-min-magnitude', DEFAULT_ALERT_RULE.minMagnitude),
+    source: readStoredValue('sismi-alert-source', DEFAULT_ALERT_RULE.source),
+    quietHoursEnabled: readStoredValue('sismi-quiet-hours-enabled', DEFAULT_ALERT_RULE.quietHoursEnabled),
+    quietHoursStart: readStoredValue('sismi-quiet-hours-start', DEFAULT_ALERT_RULE.quietHoursStart),
+    quietHoursEnd: readStoredValue('sismi-quiet-hours-end', DEFAULT_ALERT_RULE.quietHoursEnd),
+    sound: readStoredValue('sismi-alert-sound', DEFAULT_ALERT_RULE.sound),
+    maxAlertsPerUpdate: readStoredValue('sismi-max-alerts', DEFAULT_ALERT_RULE.maxAlertsPerUpdate),
+  }
+  const normalize = (value) => {
+    const rule = { ...DEFAULT_ALERT_RULE, ...legacy, ...(value && typeof value === 'object' ? value : {}) }
+    const magnitude = Number(rule.minMagnitude)
+    const maxAlerts = Number(rule.maxAlertsPerUpdate)
+    return {
+      minMagnitude: Number.isFinite(magnitude) ? Math.min(7, Math.max(1, magnitude)) : DEFAULT_ALERT_RULE.minMagnitude,
+      source: ALERT_SOURCE_OPTIONS.includes(rule.source) ? rule.source : DEFAULT_ALERT_RULE.source,
+      quietHoursEnabled: Boolean(rule.quietHoursEnabled),
+      quietHoursStart: /^\d{2}:\d{2}$/.test(String(rule.quietHoursStart)) ? String(rule.quietHoursStart) : DEFAULT_ALERT_RULE.quietHoursStart,
+      quietHoursEnd: /^\d{2}:\d{2}$/.test(String(rule.quietHoursEnd)) ? String(rule.quietHoursEnd) : DEFAULT_ALERT_RULE.quietHoursEnd,
+      sound: ALERT_SOUND_OPTIONS.includes(rule.sound) ? rule.sound : DEFAULT_ALERT_RULE.sound,
+      maxAlertsPerUpdate: [1, 3, 5, 10].includes(maxAlerts) ? maxAlerts : DEFAULT_ALERT_RULE.maxAlertsPerUpdate,
+    }
+  }
+  return { nearby: normalize(saved?.nearby), global: normalize(saved?.global) }
+}
+async function notifyEvent(event, soundProfile = 'intense') { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}${event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}`, tag: `sismi-alert-${event.id}`, sound: soundProfile !== 'silent' }) }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)

@@ -1,5 +1,17 @@
 # Historial de versiones
 
+## [0.1.14] — 2026-08-24
+
+### Alertas avanzadas
+
+- Se retira el aviso introductorio del Modo seguridad para mostrar la guía directamente.
+- Horario silencioso configurable, sin ocultar los sismos del historial.
+- Sonido intenso, aviso corto o solo aviso visual.
+- Límite de avisos por cada actualización para evitar saturación.
+- Filtro por fuente: SGC, USGS o ambas.
+- Reglas independientes para “Mi zona” y “Todo el mundo”.
+- Las notificaciones de Windows respetan la opción de sonido elegida.
+
 ## [0.1.13] — 2026-08-24
 
 ### Modo seguridad

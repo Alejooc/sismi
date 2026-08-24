@@ -38,7 +38,7 @@ export async function requestNotificationPermission() {
 export async function notifyDesktop(payload) {
   if (isDesktopApp()) {
     const { invoke } = await import('@tauri-apps/api/core')
-    await invoke('send_sismi_notification', { title: payload.title, body: payload.body })
+    await invoke('send_sismi_notification', { title: payload.title, body: payload.body, sound: payload.sound !== false })
     return
   }
 
@@ -47,42 +47,49 @@ export async function notifyDesktop(payload) {
   }
 }
 
-export async function playAlertSound() {
-  if (typeof window === 'undefined') return
+export async function playAlertSound(profile = 'intense') {
+  if (typeof window === 'undefined' || profile === 'silent') return
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext
     if (!AudioContext) return
     const context = new AudioContext()
     await context.resume()
     const start = context.currentTime
-    const notes = [
-      { at: 0, frequency: 988 },
-      { at: 0.18, frequency: 1319 },
-      { at: 0.36, frequency: 988 },
-      { at: 0.54, frequency: 1319 },
-      { at: 1.02, frequency: 988 },
-      { at: 1.2, frequency: 1319 },
-      { at: 1.38, frequency: 988 },
-      { at: 1.56, frequency: 1319 },
-      { at: 2.04, frequency: 988 },
-      { at: 2.22, frequency: 1319 },
-      { at: 2.4, frequency: 988 },
-      { at: 2.58, frequency: 1319 },
-    ]
+    const notes = profile === 'brief'
+      ? [
+        { at: 0, frequency: 880 },
+        { at: 0.24, frequency: 1175 },
+        { at: 0.48, frequency: 880 },
+      ]
+      : [
+        { at: 0, frequency: 988 },
+        { at: 0.18, frequency: 1319 },
+        { at: 0.36, frequency: 988 },
+        { at: 0.54, frequency: 1319 },
+        { at: 1.02, frequency: 988 },
+        { at: 1.2, frequency: 1319 },
+        { at: 1.38, frequency: 988 },
+        { at: 1.56, frequency: 1319 },
+        { at: 2.04, frequency: 988 },
+        { at: 2.22, frequency: 1319 },
+        { at: 2.4, frequency: 988 },
+        { at: 2.58, frequency: 1319 },
+      ]
+    const isBrief = profile === 'brief'
     notes.forEach(({ at, frequency }) => {
       const oscillator = context.createOscillator()
       const gain = context.createGain()
-      oscillator.type = 'square'
+      oscillator.type = isBrief ? 'sine' : 'square'
       oscillator.frequency.setValueAtTime(frequency, start + at)
       gain.gain.setValueAtTime(0.0001, start + at)
-      gain.gain.exponentialRampToValueAtTime(0.34, start + at + 0.018)
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 0.14)
+      gain.gain.exponentialRampToValueAtTime(isBrief ? 0.22 : 0.34, start + at + 0.018)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + at + (isBrief ? 0.18 : 0.14))
       oscillator.connect(gain)
       gain.connect(context.destination)
       oscillator.start(start + at)
-      oscillator.stop(start + at + 0.15)
+      oscillator.stop(start + at + (isBrief ? 0.2 : 0.15))
     })
-    window.setTimeout(() => context.close(), 3600)
+    window.setTimeout(() => context.close(), isBrief ? 1200 : 3600)
   } catch {
     // El sonido es un refuerzo opcional; la alerta visual y la notificación continúan.
   }
