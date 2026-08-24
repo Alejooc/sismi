@@ -127,7 +127,8 @@ async function fetchUsgs(signal) {
 
 async function fetchSgc(signal) {
   const endDate = new Date()
-  const startDate = new Date(endDate)
+  endDate.setDate(endDate.getDate() + 1)
+  const startDate = new Date()
   startDate.setDate(startDate.getDate() - 7)
 
   if (isDesktopApp()) {

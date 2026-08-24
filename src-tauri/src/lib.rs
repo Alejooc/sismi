@@ -108,7 +108,7 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.17")
+        .user_agent("Sismi/0.1.18")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()

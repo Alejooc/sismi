@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.18] — 2026-08-24
+
+### Registros recientes del SGC
+
+- Se consulta el día siguiente como límite para incluir eventos publicados durante el día actual.
+- Corrige el caso donde SGC mostraba registros de ayer aunque su página ya tenía datos de hoy.
+
 ## [0.1.17] — 2026-08-24
 
 ### Corrección de actualización SGC
