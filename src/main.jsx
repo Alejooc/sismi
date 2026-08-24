@@ -110,7 +110,7 @@ function App() {
   const [theme, setTheme] = useState(() => readStoredValue('sismi-theme', 'light'))
   const [location, setLocation] = useState(() => readStoredValue('sismi-location', DEFAULT_LOCATION))
   const [locationMode, setLocationMode] = useState(() => readStoredValue('sismi-location-mode', 'search') === 'auto' ? 'auto' : 'search')
-  const [locationStatus, setLocationStatus] = useState('Busca una ciudad o usa la ubicación del dispositivo.')
+  const [locationStatus, setLocationStatus] = useState('Elige una ciudad o usa la ubicación de este equipo.')
   const [minMagnitude, setMinMagnitude] = useState(() => readStoredValue('sismi-min-magnitude', 3))
   const [alertScope, setAlertScope] = useState(() => readStoredValue('sismi-alert-scope', 'nearby') === 'global' ? 'global' : 'nearby')
   const [historyQuery, setHistoryQuery] = useState('')
@@ -162,7 +162,7 @@ function App() {
       return Number.isFinite(Number(event.latitude)) && Number.isFinite(Number(event.longitude))
     })
   }, [events, location, mapMinMagnitude, mapOnlyNearby, mapQuery, mapSource, mapTimeRange])
-  const statusLabel = feedError ? 'Sin conexión' : notifications ? 'Monitoreando' : 'Alertas pausadas'
+  const statusLabel = feedError ? 'Sin conexión' : notifications ? 'Vigilancia activa' : 'Avisos pausados'
   const monitoringLabel = alertScope === 'global' ? 'Todo el mundo' : location.label
 
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
@@ -210,7 +210,7 @@ function App() {
       setFeedError(null)
       setLastChecked('ahora')
     } catch (error) {
-      if (error.name !== 'AbortError') { setFeedError('No se pudieron actualizar las fuentes'); setLastChecked('sin actualizar') }
+      if (error.name !== 'AbortError') { setFeedError('No pudimos traer información nueva'); setLastChecked('sin actualizar') }
     } finally {
       feedRequestInFlight.current = false
       setRefreshing(false)
@@ -224,7 +224,7 @@ function App() {
 
   async function toggleNotifications() {
     if (!notifications && !(await requestNotificationPermission())) {
-      setLocationStatus('Permite las notificaciones del sistema para recibir alertas.')
+      setLocationStatus('Activa los avisos de Windows para recibir alertas.')
       return
     }
     setNotifications((current) => !current)
@@ -234,7 +234,7 @@ function App() {
     setTestNotificationStatus('Solicitando permiso…')
     const permissionGranted = await requestNotificationPermission()
     if (!permissionGranted) {
-      setTestNotificationStatus('Permiso no concedido. Revisa las notificaciones de Windows.')
+      setTestNotificationStatus('Los avisos de Windows están desactivados. Revísalos en Configuración.')
       return
     }
     const testTime = Date.now()
@@ -277,7 +277,7 @@ function App() {
   function selectSearchedLocation(place) {
     setLocation({ label: place.label, lat: place.latitude, lon: place.longitude, radiusKm: location.radiusKm })
     setLocationMode('search')
-    setLocationStatus(`Monitoreando desde ${place.label}.`)
+    setLocationStatus(`Avisos configurados para ${place.label}.`)
   }
 
   function requestCurrentLocation() {
@@ -288,9 +288,9 @@ function App() {
       const lon = Number(position.coords.longitude.toFixed(5))
       setLocation({ label: 'Ubicación actual', lat, lon, radiusKm: location.radiusKm })
       setLocationMode('auto')
-      setLocationStatus('Ubicación actual guardada en este dispositivo.')
+      setLocationStatus('Usaremos la ubicación de este equipo.')
     }, (error) => {
-      setLocationStatus(error.code === error.PERMISSION_DENIED ? 'Permiso denegado. Puedes buscar tu ciudad.' : 'No fue posible obtener tu ubicación.')
+      setLocationStatus(error.code === error.PERMISSION_DENIED ? 'No diste permiso. También puedes elegir una ciudad.' : 'No pudimos obtener tu ubicación.')
       setLocationMode('search')
     }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 15 * 60 * 1000 })
   }
@@ -332,7 +332,7 @@ function App() {
         {!selectedEvent && (activeTab === 'live' ? (
           <div className="content-stack">
             <article className="latest-card">
-              <div className="card-topline"><span className="live-label"><span />{latestNearby ? 'Dentro de tu radio' : 'Último evento registrado'}</span><time>{latest.timeLabel || latest.time}</time></div>
+              <div className="card-topline"><span className="live-label"><span />{latestNearby ? 'En tu zona' : 'Último sismo'}</span><time>{latest.timeLabel || latest.time}</time></div>
               <div className="event-primary">
                 <div className="magnitude-value"><strong>{latest.magnitudeLabel}</strong><span>{latest.magnitudeType}</span></div>
                 <div className="event-heading"><h2>{latest.place}</h2><p>{latest.source} · {latest.metadata?.status || 'registrado'}</p></div>
@@ -355,14 +355,14 @@ function App() {
               <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
             </section>
 
-            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>Radio de monitoreo: {location.radiusKm} km</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
+            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>Distancia de aviso: {location.radiusKm} km</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
           </div>
         ) : activeTab === 'history' ? (
           <div className="history-panel">
             <div className="history-intro"><div><p>Registros de {alertScope === 'global' ? 'todo el mundo' : 'mi zona'}</p><h2>Historial sísmico</h2></div><span>{filteredEvents.length}</span></div>
             <div className="history-scope-row"><span>Mostrar</span><div className="history-scope-toggle"><button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')}><Icon name="locate" size={13} />Mi zona</button><button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')}><Icon name="globe" size={13} />Todo el mundo</button></div></div>
-            <label className="search-field"><Icon name="search" size={16} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar lugar, fuente o ID" aria-label="Buscar en el historial" />{historyQuery && <button onClick={() => setHistoryQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
-            <div className="history-results">{filteredEvents.length > 0 ? filteredEvents.map((event) => <EventRow key={event.id} event={event} detailed distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="empty-state"><Icon name="search" size={21} /><strong>Sin resultados</strong><span>Prueba con otro lugar, fuente o identificador.</span></div>}</div>
+            <label className="search-field"><Icon name="search" size={16} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Busca por lugar o fuente" aria-label="Buscar en el historial" />{historyQuery && <button onClick={() => setHistoryQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
+            <div className="history-results">{filteredEvents.length > 0 ? filteredEvents.map((event) => <EventRow key={event.id} event={event} detailed distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="empty-state"><Icon name="search" size={21} /><strong>No encontramos sismos</strong><span>Intenta buscar otro lugar o fuente.</span></div>}</div>
           </div>
         ) : (
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
@@ -371,44 +371,44 @@ function App() {
         {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
-        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} conectados</span><span>v{APP_VERSION}</span></footer>
+        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
       </section>
     </main>
   )
 }
 
 function AppLoader() {
-  return <div className="app-loader" role="status" aria-live="polite"><div className="loader-logo-wrap"><span className="loader-ring" /><img src="/sismi-logo.png" alt="" /></div><strong>Iniciando Sismi</strong><span>Conectando con SGC y USGS</span><div className="loader-progress"><i /></div></div>
+  return <div className="app-loader" role="status" aria-live="polite"><div className="loader-logo-wrap"><span className="loader-ring" /><img src="/sismi-logo.png" alt="" /></div><strong>Cargando Sismi</strong><span>Consultando información sísmica</span><div className="loader-progress"><i /></div></div>
 }
 
 function EarthquakeAlert({ event, onClose }) {
-  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'PRUEBA DE ALERTA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Detectado ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
+  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
 function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
-      <header className="drawer-heading"><div><button className="back-button" onClick={aboutOpen ? () => setAboutOpen(false) : close} aria-label={aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{aboutOpen ? 'Información de la aplicación' : 'Preferencias del monitor'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
+      <header className="drawer-heading"><div><button className="back-button" onClick={aboutOpen ? () => setAboutOpen(false) : close} aria-label={aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
       {aboutOpen ? <AboutPanel updateState={updateState} checkForAppUpdate={checkForAppUpdate} /> : <div className="settings-content">
         <section className="settings-section">
-          <div className="section-heading"><span className="section-icon"><Icon name="locate" size={16} /></span><div><strong>Ubicación</strong><span>Centro del radio de monitoreo</span></div></div>
-          <div className="segmented"><button className={locationMode === 'search' ? 'selected' : ''} onClick={() => setLocationMode('search')}>Buscar lugar</button><button className={locationMode === 'auto' ? 'selected' : ''} onClick={requestCurrentLocation}>Ubicación actual</button></div>
-          {locationMode === 'search' ? <LocationSearch currentLocation={location} onSelect={selectSearchedLocation} /> : <div className="selected-location"><span><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><small>Ubicación obtenida del dispositivo</small></div><Icon name="check" size={17} /></div>}
-          <label className="range-field"><span><span>Radio de monitoreo</span><strong>{location.radiusKm} km</strong></span><input type="range" min="25" max="1000" step="25" value={location.radiusKm} onChange={(event) => updateRadius(event.target.value)} /></label>
+          <div className="section-heading"><span className="section-icon"><Icon name="locate" size={16} /></span><div><strong>Ubicación</strong><span>Lugar desde el que recibirás avisos</span></div></div>
+          <div className="segmented"><button className={locationMode === 'search' ? 'selected' : ''} onClick={() => setLocationMode('search')}>Elegir ciudad</button><button className={locationMode === 'auto' ? 'selected' : ''} onClick={requestCurrentLocation}>Usar mi ubicación</button></div>
+          {locationMode === 'search' ? <LocationSearch currentLocation={location} onSelect={selectSearchedLocation} /> : <div className="selected-location"><span><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><small>Ubicación de este equipo</small></div><Icon name="check" size={17} /></div>}
+          <label className="range-field"><span><span>Distancia de aviso</span><strong>{location.radiusKm} km</strong></span><input type="range" min="25" max="1000" step="25" value={location.radiusKm} onChange={(event) => updateRadius(event.target.value)} /></label>
           <p className="setting-note">{locationStatus}</p>
         </section>
 
         <section className="settings-section">
-          <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Sensibilidad y notificaciones</span></div></div>
-          <div className="alert-scope-label"><span>Cobertura de las alertas</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
-          <div className="alert-scope-picker" role="group" aria-label="Cobertura de las alertas">
+          <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Elige qué sismos quieres recibir</span></div></div>
+          <div className="alert-scope-label"><span>Dónde recibir avisos</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
+          <div className="alert-scope-picker" role="group" aria-label="Dónde recibir avisos">
             <button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')} aria-pressed={alertScope === 'nearby'}><span><Icon name="locate" size={17} /></span><div><strong>Mi zona</strong><small>Dentro de {location.radiusKm} km de {location.label}</small></div>{alertScope === 'nearby' && <Icon name="check" size={17} />}</button>
-            <button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')} aria-pressed={alertScope === 'global'}><span><Icon name="globe" size={17} /></span><div><strong>Todo el mundo</strong><small>Cualquier país, según la magnitud mínima</small></div>{alertScope === 'global' && <Icon name="check" size={17} />}</button>
+            <button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')} aria-pressed={alertScope === 'global'}><span><Icon name="globe" size={17} /></span><div><strong>Todo el mundo</strong><small>Recibe avisos de cualquier país</small></div>{alertScope === 'global' && <Icon name="check" size={17} />}</button>
           </div>
           <label className="range-field"><span><span>Magnitud mínima</span><strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="1" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
-          <div className="setting-row"><div><strong>Alertas de escritorio</strong><span>Sonido y notificación del sistema</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar alertas"><span /></button></div>
-          <button className="secondary-button" onClick={testNotification}><Icon name="bell" size={15} /> Probar alerta de sismo</button>
-          <p className="test-alert-status" role="status">{testNotificationStatus || 'Comprueba sonido, aviso visual y notificación.'}</p>
+          <div className="setting-row"><div><strong>Avisos en el escritorio</strong><span>Sonido y aviso de Windows</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar avisos"><span /></button></div>
+          <button className="secondary-button" onClick={testNotification}><Icon name="bell" size={15} /> Probar aviso</button>
+          <p className="test-alert-status" role="status">{testNotificationStatus || 'Haz una prueba para confirmar que todo funciona.'}</p>
         </section>
 
         <section className="settings-section appearance-section">
@@ -416,7 +416,7 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           <button className="theme-choice" onClick={toggleTheme}><span>{theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}</span><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
         </section>
         <section className="settings-section about-entry-section">
-          <button className="about-entry" onClick={() => setAboutOpen(true)}><span className="about-entry-icon"><Icon name="info" size={17} /></span><span><strong>Acerca de Sismi</strong><small>Versión, fuentes y propósito de la app</small></span><Icon name="chevron" size={16} /></button>
+          <button className="about-entry" onClick={() => setAboutOpen(true)}><span className="about-entry-icon"><Icon name="info" size={17} /></span><span><strong>Acerca de Sismi</strong><small>Conoce Sismi y sus funciones</small></span><Icon name="chevron" size={16} /></button>
         </section>
       </div>}
     </aside>
@@ -428,18 +428,18 @@ function AboutPanel({ updateState, checkForAppUpdate }) {
     <div className="about-content">
       <div className="about-hero">
         <div className="about-logo"><span /><img src="/sismi-logo.png" alt="Logo de Sismi" /></div>
-        <div><span className="about-kicker">MONITOREO SÍSMICO</span><h3>Sismi</h3><p>Información clara para estar preparado</p><span className="about-version">Versión {APP_VERSION}</span></div>
+        <div><span className="about-kicker">INFORMACIÓN SÍSMICA</span><h3>Sismi</h3><p>Avisos sísmicos claros para tu día</p><span className="about-version">Versión {APP_VERSION}</span></div>
       </div>
-      <p className="about-intro">Sismi reúne información sísmica reciente en un panel pequeño, claro y siempre disponible desde la bandeja del sistema.</p>
+      <p className="about-intro">Consulta sismos recientes, revisa dónde ocurrieron y recibe avisos cuando coincidan con tus preferencias.</p>
 
       <div className="about-facts">
-        <div className="about-fact"><span><Icon name="signal" size={16} /></span><div><small>Fuentes conectadas</small><strong>SGC · USGS</strong></div></div>
-        <div className="about-fact"><span><Icon name="bell" size={16} /></span><div><small>Alertas</small><strong>Sonido y Windows</strong></div></div>
+        <div className="about-fact"><span><Icon name="signal" size={16} /></span><div><small>Información</small><strong>SGC · USGS</strong></div></div>
+        <div className="about-fact"><span><Icon name="bell" size={16} /></span><div><small>Avisos</small><strong>Sonido y Windows</strong></div></div>
         <div className="about-fact"><span><Icon name="globe" size={16} /></span><div><small>Visualización</small><strong>Mapa mundial</strong></div></div>
         <div className="about-fact"><span><Icon name="locate" size={16} /></span><div><small>Cobertura</small><strong>Local o mundial</strong></div></div>
       </div>
 
-      <section className="about-block"><span className="about-kicker">QUÉ HACE SISMI</span><p>Consulta el historial de sismos, muestra los eventos sobre un globo interactivo y avisa cuando aparece un evento que coincide con tu magnitud y cobertura configuradas.</p></section>
+      <section className="about-block"><span className="about-kicker">PARA QUÉ SIRVE</span><p>Revisa el historial, consulta los sismos en el globo mundial y recibe avisos según la zona y la magnitud que elijas.</p></section>
       <section className="about-block about-note"><span className="about-kicker">NOTA IMPORTANTE</span><p>Los datos y avisos dependen de la disponibilidad y el tiempo de publicación de las fuentes oficiales. Sismi es una herramienta informativa y no reemplaza las instrucciones de las autoridades.</p></section>
       <section className="about-block about-update-block">
         <div className="about-update-heading"><div><span className="about-kicker">ACTUALIZACIONES</span><strong>{getUpdateTitle(updateState)}</strong></div><span className="about-update-version">v{APP_VERSION}</span></div>
@@ -449,9 +449,9 @@ function AboutPanel({ updateState, checkForAppUpdate }) {
           <Icon name={updateState.status === 'available' ? 'refresh' : 'search'} size={15} />
           {getUpdateAction(updateState)}
         </button>
-        <p className="test-alert-status">Las actualizaciones se verifican de forma segura desde GitHub.</p>
+        <p className="test-alert-status">Sismi busca nuevas versiones automáticamente.</p>
       </section>
-      <div className="about-footer"><img src="/sismi-logo.png" alt="" /><span>Actividad sísmica cerca de ti, cuando más importa.</span></div>
+      <div className="about-footer"><img src="/sismi-logo.png" alt="" /><span>Avisos sísmicos claros, sin interrumpir tu trabajo.</span></div>
     </div>
   )
 }
@@ -464,8 +464,8 @@ function getUpdateTitle(updateState) {
     available: 'Hay una actualización disponible',
     error: 'No se pudo comprobar ahora',
     unavailable: 'Actualizaciones no disponibles ahora',
-    unsupported: 'Actualizaciones disponibles en la app de Windows',
-    idle: 'Mantén Sismi al día',
+    unsupported: 'Busca actualizaciones desde la app de Windows',
+    idle: 'Sismi se mantiene al día',
   }
   return titles[updateState?.status] || titles.idle
 }
@@ -474,7 +474,7 @@ function getUpdateAction(updateState) {
   if (updateState?.status === 'available') return `Instalar v${updateState.version}`
   if (updateState?.status === 'checking') return 'Buscando…'
   if (updateState?.status === 'downloading') return updateState.percent ? `Descargando ${updateState.percent}%` : 'Descargando…'
-  return 'Buscar actualizaciones'
+  return 'Buscar nuevas versiones'
 }
 
 function LocationSearch({ currentLocation, onSelect }) {
@@ -525,24 +525,24 @@ function EventRow({ event, detailed = false, distanceKm, onSelect }) {
 function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, onSelect }) {
   return (
     <div className="map-panel">
-      <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="globe" size={18} /></span><div><h2>Mapa mundial</h2><p>Explora la distribución de los sismos</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
+      <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="globe" size={18} /></span><div><h2>Sismos en el mundo</h2><p>Consulta eventos por zona y fecha</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
       <div className="map-tools">
-        <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
+        <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca un lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
         <div className="map-tool-row">
           <div className="map-source-filter" role="group" aria-label="Filtrar por fuente">
             {['all', 'USGS', 'SGC'].map((value) => <button key={value} className={source === value ? 'selected' : ''} onClick={() => setSource(value)}>{value === 'all' ? 'Todas' : value}</button>)}
           </div>
-          <select className="map-time-filter" value={timeRange} onChange={(event) => setTimeRange(event.target.value)} aria-label="Periodo del mapa"><option value="all">Todo lo disponible</option><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 días</option><option value="30d">Últimos 30 días</option></select>
+          <select className="map-time-filter" value={timeRange} onChange={(event) => setTimeRange(event.target.value)} aria-label="Periodo visible"><option value="all">Todo lo disponible</option><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 días</option><option value="30d">Últimos 30 días</option></select>
         </div>
         <div className="map-control-row">
           <label className="map-range"><span>Magnitud mínima <strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="0" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
           <button className={`map-nearby-toggle ${onlyNearby ? 'selected' : ''}`} onClick={() => setOnlyNearby((current) => !current)} aria-pressed={onlyNearby}><Icon name="locate" size={14} />Mi zona</button>
         </div>
       </div>
-      <div className="map-status"><span><i />{events.length ? 'Marcadores visibles' : 'No hay sismos con estos filtros'}</span><small>Arrastra para mover · rueda para zoom · toca un marcador para ver detalles</small></div>
+      <div className="map-status"><span><i />{events.length ? 'Sismos mostrados' : 'No hay sismos con estos filtros'}</span><small>Mueve el mapa · acerca la vista · toca un punto para ver sus datos</small></div>
       <WorldEarthquakeGlobe events={events} location={location} onSelect={onSelect} />
       <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Color = magnitud · números = M3+ · etiquetas = ciudades</small></div>
-      <div className="globe-summary"><div><span>Último evento visible</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
+      <div className="globe-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
 }
@@ -746,12 +746,12 @@ function EarthquakeMap({ event }) {
   }, [event.id, event.magnitude, hasCoordinates, latitude, longitude])
 
   if (!hasCoordinates) {
-    return <div className="map-unavailable"><Icon name="map" size={22} /><strong>Mapa no disponible</strong><span>La fuente no entregó coordenadas válidas para este evento.</span></div>
+    return <div className="map-unavailable"><Icon name="map" size={22} /><strong>No hay mapa para este sismo</strong><span>La fuente no proporcionó una ubicación válida.</span></div>
   }
 
   return (
     <section className="event-map-section" aria-label="Mapa del epicentro">
-      <div className="map-heading"><div><Icon name="map" size={16} /><strong>Ubicación del epicentro</strong></div><span>{latitude.toFixed(3)}, {longitude.toFixed(3)}</span></div>
+      <div className="map-heading"><div><Icon name="map" size={16} /><strong>Epicentro del sismo</strong></div><span>{latitude.toFixed(3)}, {longitude.toFixed(3)}</span></div>
       <div className="event-map" ref={mapContainer}>
         {mapState === 'loading' && <div className="map-state"><Icon name="refresh" size={18} /><span>Cargando mapa…</span></div>}
         {mapState === 'error' && <div className="map-state is-error"><Icon name="map" size={18} /><span>No se pudo cargar el mapa. Revisa tu conexión.</span></div>}
@@ -763,8 +763,8 @@ function EarthquakeMap({ event }) {
 
 function EventDetails({ event, distanceKm, onClose }) {
   const metadata = event.metadata || {}
-  const items = [['ID del evento', metadata.eventId || event.id], ['Fuente / red', `${metadata.agency || event.source} · ${event.source}`], ['Código de red', metadata.networkCode || '—'], ['Estado', metadata.status || '—'], ['Hora del sismo', metadata.localTime || event.timeLabel], ['Detectado por Sismi', event.detectedAt ? `${formatClock(event.detectedAt)}${formatDetectionLag(event)}` : '—'], ['Hora UTC', metadata.utcTime || '—'], ['Actualizado', metadata.updated || '—'], ['Coordenadas', `${formatValue(event.latitude)}, ${formatValue(event.longitude)}`], ['Distancia', Number.isFinite(distanceKm) ? `${distanceKm} km` : '—'], ['Magnitud', `${event.magnitudeLabel} ${event.magnitudeType}`], ['Profundidad', event.depth], ['Reportes sentidos', metadata.felt ?? '—'], ['Intensidad CDI / MMI', `${metadata.cdi ?? '—'} / ${metadata.mmi ?? '—'}`], ['Nivel de alerta', metadata.alert || '—'], ['Estaciones', metadata.nst ?? '—'], ['RMS', metadata.rms ?? '—'], ['Gap', metadata.gap ? `${metadata.gap}°` : '—'], ['Distancia mínima', metadata.dmin ?? '—'], ['Significancia', metadata.significance ?? '—'], ['Tsunami', metadata.tsunami === null || metadata.tsunami === undefined ? '—' : metadata.tsunami ? 'Sí' : 'No'], ['Poblaciones cercanas', metadata.closestTowns || '—'], ['Código del evento', metadata.eventCode || '—'], ['Tipos de evento', metadata.eventTypes || '—']]
-  return <div className="details-overlay" role="presentation" onClick={onClose}><section className="details-sheet" role="dialog" aria-modal="true" aria-label="Información completa del sismo" onClick={(eventClick) => eventClick.stopPropagation()}><header className="details-header"><div><p>Información del evento</p><h2>{event.place}</h2></div><button className="icon-button" onClick={onClose} aria-label="Cerrar detalles"><Icon name="close" size={17} /></button></header><div className="details-hero"><strong>{event.magnitudeLabel}</strong><div><span>{event.magnitudeType} · {event.source}</span><small>{event.timeLabel}</small></div></div><EarthquakeMap event={event} /><div className="details-grid">{items.map(([label, value]) => <div className="detail-item" key={label}><span>{label}</span><strong>{formatValue(value)}</strong></div>)}</div><p className="source-note">Datos mostrados dentro de Sismi desde las fuentes oficiales disponibles.</p></section></div>
+  const items = [['Identificador', metadata.eventId || event.id], ['Fuente y red', `${metadata.agency || event.source} · ${event.source}`], ['Red sísmica', metadata.networkCode || '—'], ['Estado', metadata.status || '—'], ['Hora del evento', metadata.localTime || event.timeLabel], ['Aviso recibido', event.detectedAt ? `${formatClock(event.detectedAt)}${formatDetectionLag(event)}` : '—'], ['Hora UTC', metadata.utcTime || '—'], ['Última actualización', metadata.updated || '—'], ['Coordenadas', `${formatValue(event.latitude)}, ${formatValue(event.longitude)}`], ['Distancia', Number.isFinite(distanceKm) ? `${distanceKm} km` : '—'], ['Magnitud', `${event.magnitudeLabel} ${event.magnitudeType}`], ['Profundidad', event.depth], ['Personas que lo sintieron', metadata.felt ?? '—'], ['Intensidad reportada (CDI / MMI)', `${metadata.cdi ?? '—'} / ${metadata.mmi ?? '—'}`], ['Nivel de alerta', metadata.alert || '—'], ['Estaciones de medición', metadata.nst ?? '—'], ['RMS', metadata.rms ?? '—'], ['Separación de estaciones', metadata.gap ? `${metadata.gap}°` : '—'], ['Distancia mínima a estación', metadata.dmin ?? '—'], ['Importancia del evento', metadata.significance ?? '—'], ['Tsunami', metadata.tsunami === null || metadata.tsunami === undefined ? '—' : metadata.tsunami ? 'Sí' : 'No'], ['Poblaciones cercanas', metadata.closestTowns || '—'], ['Código del evento', metadata.eventCode || '—'], ['Tipo de evento', metadata.eventTypes || '—']]
+  return <div className="details-overlay" role="presentation" onClick={onClose}><section className="details-sheet" role="dialog" aria-modal="true" aria-label="Información completa del sismo" onClick={(eventClick) => eventClick.stopPropagation()}><header className="details-header"><div><p>Información del sismo</p><h2>{event.place}</h2></div><button className="icon-button" onClick={onClose} aria-label="Cerrar detalles"><Icon name="close" size={17} /></button></header><div className="details-hero"><strong>{event.magnitudeLabel}</strong><div><span>{event.magnitudeType} · {event.source}</span><small>{event.timeLabel}</small></div></div><EarthquakeMap event={event} /><div className="details-grid">{items.map(([label, value]) => <div className="detail-item" key={label}><span>{label}</span><strong>{formatValue(value)}</strong></div>)}</div><p className="source-note">Información tomada de fuentes oficiales y mostrada dentro de Sismi.</p></section></div>
 }
 
 function isNearby(event, center) { const distanceKm = distanceBetween(center, event); return Number.isFinite(distanceKm) && distanceKm <= center.radiusKm }
@@ -772,11 +772,11 @@ function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour
 function formatDetectionLag(event) {
   if (!Number.isFinite(event?.detectedAt) || !Number.isFinite(event?.timestamp)) return ''
   const minutes = Math.max(0, Math.round((event.detectedAt - event.timestamp) / 60000))
-  return ` · retraso ${minutes < 1 ? 'menor a 1 min' : `${minutes} min`}`
+  return ` · demora ${minutes < 1 ? 'menor a 1 min' : `${minutes} min`}`
 }
 function formatValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Sí' : 'No'; return String(value) }
 function readStoredValue(key, fallback) { try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : fallback } catch { return fallback } }
 function writeStoredValue(key, value) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* almacenamiento opcional */ } }
-async function notifyEvent(event) { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}${event.detectedAt ? ` · Detectado ${formatClock(event.detectedAt)}` : ''}`, tag: `sismi-alert-${event.id}` }) }
+async function notifyEvent(event) { if (!event) return; await notifyDesktop({ title: `Sismi · Magnitud ${event.magnitudeLabel}`, body: `${event.place} · ${event.depth} · ${event.source}${event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}`, tag: `sismi-alert-${event.id}` }) }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)

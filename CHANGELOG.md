@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.7] — 2026-08-24
+
+### Texto de la aplicación
+
+- Mensajes, botones y estados revisados para usar lenguaje claro y natural para clientes finales.
+- Ajustes en configuración, alertas, ubicación, historial, mapa, detalles y sección Acerca de Sismi.
+
 ## [0.1.6] — 2026-08-24
 
 ### Corrección visual
