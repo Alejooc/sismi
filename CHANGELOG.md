@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.8] — 2026-08-24
+
+### Actualizaciones
+
+- Aviso dentro de Sismi cuando hay una nueva versión disponible.
+- Notificación de Windows para informar que puede descargarse.
+- Botón de descarga con estado de progreso durante la instalación.
+
 ## [0.1.7] — 2026-08-24
 
 ### Texto de la aplicación

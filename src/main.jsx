@@ -80,6 +80,7 @@ function Icon({ name, size = 18 }) {
     check: <path d="m5 12 4 4L19 6" />,
     chevron: <path d="m9 18 6-6-6-6" />,
     close: <path d="m6 6 12 12M18 6 6 18" />,
+    download: <><path d="M12 3v11" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></>,
     gear: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2.5v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H6.4v-2.5h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2H15v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2V15h-.2a1.7 1.7 0 0 0-1.5 0Z" /></>,
     settings: <><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65-2-3.46-2.49 1a7.3 7.3 0 0 0-1.69-.98L15 3h-4l-.37 2.93c-.6.25-1.17.58-1.69.98l-2.49-1-2 3.46 2.11 1.65c-.04.32-.07.65-.07.98s.02.66.07.98l-2.11 1.65 2 3.46 2.49-1c.52.4 1.09.73 1.69.98L11 21h4l.37-2.93c.6-.25 1.17-.58 1.69-.98l2.49 1 2-3.46-2.11-1.65Z" /><circle cx="13" cy="12" r="2.5" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 10.5v5" /><path d="M12 7.5h.01" /></>,
@@ -118,6 +119,7 @@ function App() {
   const [activeAlert, setActiveAlert] = useState(null)
   const [testNotificationStatus, setTestNotificationStatus] = useState('')
   const [updateState, setUpdateState] = useState({ status: 'idle', version: null, notes: '', percent: null })
+  const [updateNoticeDismissed, setUpdateNoticeDismissed] = useState(false)
   const [mapSource, setMapSource] = useState('all')
   const [mapMinMagnitude, setMapMinMagnitude] = useState(0)
   const [mapTimeRange, setMapTimeRange] = useState('all')
@@ -133,6 +135,7 @@ function App() {
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
   const updateRequestInFlight = useRef(false)
+  const updateNoticeShown = useRef(false)
   const loaderStartedAt = useRef(Date.now())
   const loaderFinished = useRef(false)
 
@@ -254,6 +257,17 @@ function App() {
         install,
         onProgress: ({ percent }) => setUpdateState((current) => ({ ...current, status: 'downloading', percent })),
       })
+      if (result.status === 'available') {
+        setUpdateNoticeDismissed(false)
+        if (automatic && !updateNoticeShown.current) {
+          updateNoticeShown.current = true
+          try {
+            await notifyDesktop({ title: `Nueva versión de Sismi · v${result.version}`, body: 'Ya puedes descargarla desde el panel de Sismi.', tag: 'sismi-update-available' })
+          } catch {
+            // El aviso dentro de Sismi sigue disponible si Windows no muestra la notificación.
+          }
+        }
+      }
       setUpdateState((current) => ({ ...current, ...result, percent: result.status === 'available' ? null : current.percent }))
     } catch (error) {
       setUpdateState((current) => ({ ...current, status: automatic ? 'unavailable' : 'error', error: error?.message || '' }))
@@ -321,6 +335,7 @@ function App() {
         </div>
 
         {feedError && <div className="feed-alert" role="status">{feedError}. Mostrando los últimos registros.</div>}
+        {(updateState.status === 'available' || updateState.status === 'downloading') && !updateNoticeDismissed && <UpdateBanner version={updateState.version} downloading={updateState.status === 'downloading'} percent={updateState.percent} onInstall={() => checkForAppUpdate({ install: true })} onDismiss={() => setUpdateNoticeDismissed(true)} />}
         {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} />}
 
         <nav className="tabs" aria-label="Secciones">
@@ -454,6 +469,10 @@ function AboutPanel({ updateState, checkForAppUpdate }) {
       <div className="about-footer"><img src="/sismi-logo.png" alt="" /><span>Avisos sísmicos claros, sin interrumpir tu trabajo.</span></div>
     </div>
   )
+}
+
+function UpdateBanner({ version, downloading, percent, onInstall, onDismiss }) {
+  return <aside className="update-banner" role="status"><span className="update-banner-icon"><Icon name={downloading ? 'refresh' : 'download'} size={16} /></span><div><strong>{downloading ? 'Descargando actualización' : 'Nueva versión disponible'}</strong><p>{downloading ? `Descargando${percent !== null && percent !== undefined ? ` · ${percent}%` : '…'}` : `Sismi v${version} ya está lista para descargar.`}</p></div><button className="update-banner-action" onClick={onInstall} disabled={downloading}>{downloading ? `${percent ?? 0}%` : 'Descargar'}</button><button className="update-banner-close" onClick={onDismiss} aria-label="Recordármelo después"><Icon name="close" size={14} /></button></aside>
 }
 
 function getUpdateTitle(updateState) {

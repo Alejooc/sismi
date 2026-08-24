@@ -103,6 +103,19 @@ html.native-window, html.native-window body { background: var(--panel); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .feed-alert { margin: 9px 16px 0; padding: 9px 10px; border: 1px solid #ecd3bf; border-radius: 8px; background: var(--warning-soft); color: var(--warning); font-size: 11px; line-height: 1.4; }
+.update-banner { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 22px; align-items: center; gap: 8px; margin: 9px 16px 0; padding: 9px; border: 1px solid var(--primary-soft-strong); border-radius: 10px; background: var(--primary-soft); animation: alert-in .22s ease-out both; }
+.update-banner-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--panel); color: var(--primary); }
+.update-banner > div { min-width: 0; }
+.update-banner strong, .update-banner p { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.update-banner strong { color: var(--text); font-size: 10px; }
+.update-banner p { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.update-banner-action { min-height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: var(--primary-button); color: var(--button-text); font-size: 9px; font-weight: 750; cursor: pointer; }
+.update-banner-action:hover { background: var(--primary-button-hover); }
+.update-banner-action:disabled { opacity: .76; cursor: wait; }
+.update-banner-icon svg { animation: none; }
+.update-banner:has(.update-banner-action:disabled) .update-banner-icon svg { animation: spin .8s linear infinite; }
+.update-banner-close { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }
+.update-banner-close:hover { background: var(--panel); color: var(--text); }
 .earthquake-alert { display: grid; grid-template-columns: 34px minmax(0, 1fr) 26px; align-items: start; gap: 9px; margin: 9px 16px 0; padding: 10px; border: 1px solid #e7c6ad; border-radius: 10px; background: var(--warning-soft); animation: alert-in .22s ease-out both; }
 @keyframes alert-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .earthquake-alert-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #f1d2ba; color: #9d5d34; animation: alert-pulse 1.2s ease-in-out infinite; }
