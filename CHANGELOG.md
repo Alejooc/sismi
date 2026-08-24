@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.6] — 2026-08-24
+
+### Corrección visual
+
+- Se evita la saturación del globo: los números permanentes se muestran solo para magnitudes 3.0 o superiores.
+- Los eventos menores siguen visibles y muestran su información completa al tocar el marcador.
+
 ## [0.1.5] — 2026-08-24
 
 ### Visualización

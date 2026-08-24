@@ -41,7 +41,7 @@ const CITY_LABELS = [
 
 function getGlobeLabels(location, events = []) {
   const monitor = location ? { ...location, type: 'monitor' } : null
-  const magnitudeLabels = events.map((event) => ({
+  const magnitudeLabels = events.filter((event) => Number(event.magnitude) >= 3).map((event) => ({
     label: event.magnitudeLabel,
     lat: Number(event.latitude),
     lon: Number(event.longitude),
@@ -541,7 +541,7 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
       </div>
       <div className="map-status"><span><i />{events.length ? 'Marcadores visibles' : 'No hay sismos con estos filtros'}</span><small>Arrastra para mover · rueda para zoom · toca un marcador para ver detalles</small></div>
       <WorldEarthquakeGlobe events={events} location={location} onSelect={onSelect} />
-      <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Color = magnitud · líneas = países · etiquetas = ciudades</small></div>
+      <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Color = magnitud · números = M3+ · etiquetas = ciudades</small></div>
       <div className="globe-summary"><div><span>Último evento visible</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
