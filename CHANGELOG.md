@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.15] — 2026-08-24
+
+### Conexión con SGC
+
+- Se añade un tiempo máximo de 12 segundos para cada fuente.
+- La consulta nativa del SGC usa límites de conexión y respuesta para no quedar pendiente indefinidamente.
+- Si SGC no responde, USGS continúa actualizando y la aplicación muestra el estado de la fuente sin bloquear el panel.
+
 ## [0.1.14] — 2026-08-24
 
 ### Alertas avanzadas

@@ -1,6 +1,7 @@
 use futures_util::future::try_join_all;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -107,7 +108,9 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.14")
+        .user_agent("Sismi/0.1.15")
+        .connect_timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(8))
         .build()
         .map_err(|error| format!("No se pudo preparar la consulta de SGC: {error}"))?;
     let query = json!({

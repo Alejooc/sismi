@@ -3,13 +3,14 @@ import { fetchSgcCatalog, isDesktopApp } from './desktop.js'
 const USGS_DAILY_FEED = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
 const SGC_FEED = 'https://api.sgc.gov.co/biweekly/biweekly_earthquakes'
 const SGC_SEARCH_PATH = '/sgc-catalog'
+const SOURCE_TIMEOUT_MS = 12000
 
 export const BOGOTA = { lat: 4.711, lon: -74.0721, radiusKm: 250 }
 
 export async function fetchEarthquakes(signal, onSourceStatus) {
   const [usgsResult, sgcResult] = await Promise.allSettled([
-    fetchUsgs(signal),
-    fetchSgc(signal),
+    fetchWithTimeout(fetchUsgs, signal),
+    fetchWithTimeout(fetchSgc, signal),
   ])
   const sourceStatus = {
     USGS: getSourceStatus(usgsResult),
@@ -23,6 +24,29 @@ export async function fetchEarthquakes(signal, onSourceStatus) {
   }
 
   return dedupeEvents(availableFeeds.flatMap((result) => result.value))
+}
+
+async function fetchWithTimeout(fetcher, parentSignal) {
+  const controller = new AbortController()
+  let timedOut = false
+  const timeoutId = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, SOURCE_TIMEOUT_MS)
+  const abortFromParent = () => controller.abort()
+
+  if (parentSignal?.aborted) controller.abort()
+  else parentSignal?.addEventListener('abort', abortFromParent, { once: true })
+
+  try {
+    return await fetcher(controller.signal)
+  } catch (error) {
+    if (timedOut) throw new Error(`La fuente tardó más de ${SOURCE_TIMEOUT_MS / 1000} segundos en responder`)
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    parentSignal?.removeEventListener('abort', abortFromParent)
+  }
 }
 
 function getSourceStatus(result) {
