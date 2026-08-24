@@ -71,6 +71,11 @@ const initialEvents = [
   { id: 'demo-3', place: 'Venezuela', magnitude: 4.1, magnitudeLabel: '4.1', magnitudeType: 'M', depth: '31 km', time: '4:02 p. m.', timeLabel: 'Hoy · 4:02 p. m.', source: 'USGS', tone: 'green', timestamp: Date.now() - 5 * 60 * 60 * 1000, latitude: 9.2, longitude: -67.3, metadata: { eventId: 'demo-3', status: 'reviewed', agency: 'USGS' } },
 ]
 
+const INITIAL_SOURCE_HEALTH = {
+  SGC: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
+  USGS: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
+}
+
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }
   const paths = {
@@ -108,6 +113,8 @@ function App() {
   const [events, setEvents] = useState(initialEvents)
   const [feedError, setFeedError] = useState(null)
   const [sourceStatus, setSourceStatus] = useState('SGC + USGS')
+  const [sourceHealth, setSourceHealth] = useState(INITIAL_SOURCE_HEALTH)
+  const [lastSyncAt, setLastSyncAt] = useState(null)
   const [theme, setTheme] = useState(() => readStoredValue('sismi-theme', 'light'))
   const [location, setLocation] = useState(() => readStoredValue('sismi-location', DEFAULT_LOCATION))
   const [locationMode, setLocationMode] = useState(() => readStoredValue('sismi-location-mode', 'search') === 'auto' ? 'auto' : 'search')
@@ -135,6 +142,7 @@ function App() {
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
   const previousLocationKey = useRef(null)
+  const alertedEventKeys = useRef(new Set())
   const updateRequestInFlight = useRef(false)
   const updateNoticeShown = useRef(false)
   const loaderStartedAt = useRef(Date.now())
@@ -211,7 +219,15 @@ function App() {
     feedRequestInFlight.current = true
     setRefreshing(true)
     try {
-      const freshEvents = await fetchEarthquakes(signal)
+      const freshEvents = await fetchEarthquakes(signal, (status) => {
+        const checkedAt = Date.now()
+        setSourceHealth((current) => Object.fromEntries(Object.entries(status).map(([source, next]) => [source, {
+          ...current[source],
+          ...next,
+          checkedAt,
+          lastOkAt: next.status === 'ok' ? checkedAt : current[source]?.lastOkAt || null,
+        }])))
+      })
       const detectedAt = Date.now()
       const alertCutoff = lastSuccessfulFeedAt.current - 15 * 60 * 1000
       const newEvents = hasLoadedFeed.current
@@ -225,6 +241,7 @@ function App() {
       freshEvents.forEach((event) => knownEventIds.current.add(getEventKey(event)))
       hasLoadedFeed.current = true
       lastSuccessfulFeedAt.current = Date.now()
+      setLastSyncAt(detectedAt)
       if (notificationsRef.current && newlyDetectedEvents.length > 0) announceAlerts(newlyDetectedEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current)
       setFeedError(null)
       setLastChecked(formatClock(detectedAt))
@@ -296,12 +313,14 @@ function App() {
     const eligibleEvents = candidateEvents.filter((event) => (
       event.magnitude >= threshold
       && (scope === 'global' || isNearby(event, center))
+      && !alertedEventKeys.current.has(getEventKey(event))
     ))
     if (eligibleEvents.length === 0) return
 
+    eligibleEvents.forEach((event) => alertedEventKeys.current.add(getEventKey(event)))
     setActiveAlert(eligibleEvents[0])
     await playAlertSound()
-    await Promise.all(eligibleEvents.map((event) => notifyEvent(event)))
+    await Promise.allSettled(eligibleEvents.map((event) => notifyEvent(event)))
   }
 
   function selectSearchedLocation(place) {
@@ -400,7 +419,7 @@ function App() {
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
         <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
@@ -417,7 +436,7 @@ function EarthquakeAlert({ event, onClose }) {
   return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
+function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
       <header className="drawer-heading"><div><button className="back-button" onClick={aboutOpen ? () => setAboutOpen(false) : close} aria-label={aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
@@ -430,6 +449,8 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           <p className="setting-note">{locationStatus}</p>
         </section>
 
+        <DataStatusSection sourceHealth={sourceHealth} lastSyncAt={lastSyncAt} refreshing={refreshing} onRefresh={refreshNow} />
+
         <section className="settings-section">
           <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Elige qué sismos quieres recibir</span></div></div>
           <div className="alert-scope-label"><span>Dónde recibir avisos</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
@@ -441,6 +462,7 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           <div className="setting-row"><div><strong>Avisos en el escritorio</strong><span>Sonido y aviso de Windows</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar avisos"><span /></button></div>
           <button className="secondary-button" onClick={testNotification}><Icon name="bell" size={15} /> Probar aviso</button>
           <p className="test-alert-status" role="status">{testNotificationStatus || 'Haz una prueba para confirmar que todo funciona.'}</p>
+          <div className="alert-safety-note"><Icon name="check" size={14} /><span>Un mismo evento no vuelve a avisarse mientras conserve su identificador.</span></div>
         </section>
 
         <section className="settings-section appearance-section">
@@ -453,6 +475,23 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
       </div>}
     </aside>
   )
+}
+
+function DataStatusSection({ sourceHealth, lastSyncAt, refreshing, onRefresh }) {
+  const sources = [['SGC', 'Servicio Geológico Colombiano'], ['USGS', 'Servicio Geológico de Estados Unidos']]
+  return <section className="settings-section data-status-section">
+    <div className="section-heading"><span className="section-icon"><Icon name="signal" size={16} /></span><div><strong>Estado de datos</strong><span>Consulta de fuentes oficiales</span></div></div>
+    <div className="data-status-summary"><div><span>Última sincronización</span><strong>{lastSyncAt ? formatSyncTime(lastSyncAt) : 'Aún no disponible'}</strong></div><button className="mini-refresh-button" onClick={onRefresh} disabled={refreshing}><Icon name="refresh" size={13} />{refreshing ? 'Actualizando…' : 'Actualizar'}</button></div>
+    <div className="source-status-list">{sources.map(([source, label]) => <SourceStatusRow key={source} source={source} label={label} health={sourceHealth[source]} />)}</div>
+    <p className="setting-note">Sismi combina ambas fuentes y elimina coincidencias para evitar registros repetidos.</p>
+  </section>
+}
+
+function SourceStatusRow({ source, label, health }) {
+  const isOk = health?.status === 'ok'
+  const isError = health?.status === 'error'
+  const statusText = isOk ? `${health.count} registros` : isError ? 'Sin respuesta' : 'Consultando…'
+  return <div className="source-status-row"><span className={`source-status-dot ${isOk ? 'is-ok' : isError ? 'is-error' : 'is-pending'}`} /><div><strong>{source}</strong><small>{label}</small></div><span className={`source-status-copy ${isError ? 'is-error' : ''}`}>{statusText}</span></div>
 }
 
 function AboutPanel({ updateState, checkForAppUpdate }) {
@@ -805,6 +844,7 @@ function EventDetails({ event, distanceKm, onClose }) {
 
 function isNearby(event, center) { const distanceKm = distanceBetween(center, event); return Number.isFinite(distanceKm) && distanceKm <= center.radiusKm }
 function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
+function formatSyncTime(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatDetectionLag(event) {
   if (!Number.isFinite(event?.detectedAt) || !Number.isFinite(event?.timestamp)) return ''
   const minutes = Math.max(0, Math.round((event.detectedAt - event.timestamp) / 60000))

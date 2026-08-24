@@ -107,7 +107,7 @@ fn send_sismi_notification(title: String, body: String) -> Result<(), String> {
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.11")
+        .user_agent("Sismi/0.1.12")
         .build()
         .map_err(|error| format!("No se pudo preparar la consulta de SGC: {error}"))?;
     let query = json!({

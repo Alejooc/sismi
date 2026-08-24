@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.12] — 2026-08-24
+
+### Monitoreo y avisos
+
+- Nuevo estado de datos en configuración con última sincronización y disponibilidad de SGC y USGS.
+- Cada fuente muestra cuántos registros entregó en la última consulta.
+- Se refuerza el control para no repetir avisos del mismo evento sísmico.
+
 ## [0.1.11] — 2026-08-24
 
 ### Datos del SGC

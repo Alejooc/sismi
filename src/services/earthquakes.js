@@ -6,11 +6,16 @@ const SGC_SEARCH_PATH = '/sgc-catalog'
 
 export const BOGOTA = { lat: 4.711, lon: -74.0721, radiusKm: 250 }
 
-export async function fetchEarthquakes(signal) {
+export async function fetchEarthquakes(signal, onSourceStatus) {
   const [usgsResult, sgcResult] = await Promise.allSettled([
     fetchUsgs(signal),
     fetchSgc(signal),
   ])
+  const sourceStatus = {
+    USGS: getSourceStatus(usgsResult),
+    SGC: getSourceStatus(sgcResult),
+  }
+  onSourceStatus?.(sourceStatus)
   const availableFeeds = [usgsResult, sgcResult].filter((result) => result.status === 'fulfilled')
 
   if (availableFeeds.length === 0) {
@@ -18,6 +23,13 @@ export async function fetchEarthquakes(signal) {
   }
 
   return dedupeEvents(availableFeeds.flatMap((result) => result.value))
+}
+
+function getSourceStatus(result) {
+  if (result.status === 'fulfilled') {
+    return { status: 'ok', count: result.value.length, error: null }
+  }
+  return { status: 'error', count: 0, error: result.reason?.message || 'Fuente no disponible' }
 }
 
 export function countNearby(events, center = BOGOTA) {
@@ -101,7 +113,7 @@ async function fetchSgc(signal) {
       .filter((event) => event.latitude !== null && event.longitude !== null)
   }
 
-  if (import.meta.env.DEV) {
+  if (import.meta.env?.DEV) {
     return fetchSgcCatalogWeb(startDate, endDate, signal)
   }
 
