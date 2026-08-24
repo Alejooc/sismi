@@ -39,9 +39,16 @@ const CITY_LABELS = [
   { label: 'Auckland', lat: -36.8509, lon: 174.7645, type: 'city' },
 ]
 
-function getGlobeLabels(location) {
+function getGlobeLabels(location, events = []) {
   const monitor = location ? { ...location, type: 'monitor' } : null
-  return [monitor, ...CITY_LABELS].filter(Boolean)
+  const magnitudeLabels = events.map((event) => ({
+    label: event.magnitudeLabel,
+    lat: Number(event.latitude),
+    lon: Number(event.longitude),
+    type: 'event',
+    magnitude: Number(event.magnitude) || 0,
+  })).filter((event) => Number.isFinite(event.lat) && Number.isFinite(event.lon))
+  return [monitor, ...CITY_LABELS, ...magnitudeLabels].filter(Boolean)
 }
 
 function getWaveEvents(events) {
@@ -583,14 +590,14 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
       .polygonStrokeColor(() => 'rgba(176, 216, 188, 0.28)')
       .polygonAltitude(0.002)
       .polygonsTransitionDuration(0)
-      .labelsData(getGlobeLabels(location))
+      .labelsData(getGlobeLabels(location, events))
       .labelLat('lat')
       .labelLng('lon')
       .labelText((place) => place.label)
-      .labelColor((place) => place.type === 'monitor' ? '#b9dfc4' : 'rgba(222, 239, 226, 0.68)')
-      .labelSize((place) => place.type === 'monitor' ? 0.3 : 0.18)
-      .labelDotRadius((place) => place.type === 'monitor' ? 0.08 : 0.04)
-      .labelAltitude((place) => place.type === 'monitor' ? 0.025 : 0.014)
+      .labelColor((place) => place.type === 'event' ? (place.magnitude >= 4.5 ? '#d6eadb' : '#83b69a') : place.type === 'monitor' ? '#b9dfc4' : 'rgba(222, 239, 226, 0.68)')
+      .labelSize((place) => place.type === 'event' ? 0.07 : place.type === 'monitor' ? 0.14 : 0.09)
+      .labelDotRadius((place) => place.type === 'event' ? 0 : place.type === 'monitor' ? 0.08 : 0.04)
+      .labelAltitude((place) => place.type === 'event' ? 0.008 : place.type === 'monitor' ? 0.025 : 0.014)
       .labelResolution(2)
       .onPointClick((event) => onSelectRef.current(event))
 
@@ -619,12 +626,13 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
     if (globeRef.current) {
       globeRef.current.pointsData(events)
       globeRef.current.ringsData(getWaveEvents(events))
+      globeRef.current.labelsData(getGlobeLabels(locationRef.current, events))
     }
   }, [events])
 
   useEffect(() => {
-    if (globeRef.current) globeRef.current.labelsData(getGlobeLabels(location))
-  }, [location])
+    if (globeRef.current) globeRef.current.labelsData(getGlobeLabels(location, events))
+  }, [events, location])
 
   function focusLocation() {
     const globe = globeRef.current

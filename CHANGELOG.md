@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.5] — 2026-08-24
+
+### Visualización
+
+- Cada marcador del globo muestra ahora su magnitud junto al punto (`1.1`, `5.2`, `7.2`, etc.).
+- Etiquetas pequeñas y suaves para conservar legibilidad al acercar.
+
 ## [0.1.4] — 2026-08-24
 
 ### Mejoras visuales
