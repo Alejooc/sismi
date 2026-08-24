@@ -108,9 +108,9 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.15")
-        .connect_timeout(Duration::from_secs(4))
-        .timeout(Duration::from_secs(8))
+        .user_agent("Sismi/0.1.16")
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(6))
         .build()
         .map_err(|error| format!("No se pudo preparar la consulta de SGC: {error}"))?;
     let query = json!({
@@ -118,7 +118,16 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
         "local_time_before": format!("{endDate}T23:59:59.999Z"),
     });
 
-    let first_page = fetch_sgc_page(&client, &query, 1).await?;
+    match fetch_sgc_catalog_pages(&client, &query).await {
+        Ok(events) => Ok(events),
+        Err(catalog_error) => fetch_sgc_feed(&client, &startDate, &endDate)
+            .await
+            .map_err(|feed_error| format!("Catálogo SGC no respondió ({catalog_error}); feed alterno tampoco: {feed_error}")),
+    }
+}
+
+async fn fetch_sgc_catalog_pages(client: &Client, query: &Value) -> Result<Vec<Value>, String> {
+    let first_page = fetch_sgc_page(client, query, 1).await?;
     let total = first_page
         .get("count")
         .and_then(Value::as_u64)
@@ -127,7 +136,7 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
 
     let mut pages = vec![first_page];
     if page_count > 1 {
-        let requests = (2..=page_count).map(|page| fetch_sgc_page(&client, &query, page));
+        let requests = (2..=page_count).map(|page| fetch_sgc_page(client, query, page));
         pages.extend(try_join_all(requests).await?);
     }
 
@@ -141,6 +150,29 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
                 .unwrap_or_default()
         })
         .collect())
+}
+
+async fn fetch_sgc_feed(client: &Client, start_date: &str, end_date: &str) -> Result<Vec<Value>, String> {
+    let url = format!(
+        "https://api.sgc.gov.co/biweekly/biweekly_earthquakes?startdate={start_date}&enddate={end_date}"
+    );
+    let payload = client
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| format!("No se pudo consultar feed alterno SGC: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Feed alterno SGC respondió con un error: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("Feed alterno SGC devolvió una respuesta inválida: {error}"))?;
+
+    Ok(payload
+        .get("features")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 async fn fetch_sgc_page(client: &Client, query: &Value, page: u64) -> Result<Value, String> {

@@ -3,7 +3,7 @@ import { fetchSgcCatalog, isDesktopApp } from './desktop.js'
 const USGS_DAILY_FEED = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
 const SGC_FEED = 'https://api.sgc.gov.co/biweekly/biweekly_earthquakes'
 const SGC_SEARCH_PATH = '/sgc-catalog'
-const SOURCE_TIMEOUT_MS = 12000
+const SOURCE_TIMEOUT_MS = 15000
 
 export const BOGOTA = { lat: 4.711, lon: -74.0721, radiusKm: 250 }
 
@@ -133,7 +133,7 @@ async function fetchSgc(signal) {
   if (isDesktopApp()) {
     const catalogEvents = await fetchSgcCatalog(toDateParam(startDate), toDateParam(endDate), signal)
     return catalogEvents
-      .map(normalizeSgcCatalogEvent)
+      .map((feature) => feature.geometry ? normalizeSgcEvent(feature) : normalizeSgcCatalogEvent(feature))
       .filter((event) => event.latitude !== null && event.longitude !== null)
   }
 

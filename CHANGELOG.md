@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.16] — 2026-08-24
+
+### Disponibilidad del SGC
+
+- El escritorio intenta primero el catálogo detallado del SGC.
+- Si catálogo no responde, usa feed alterno `biweekly_earthquakes`.
+- Feed alterno se convierte al mismo formato para conservar historial, alertas y mapa.
+- Se mantiene límite de espera para no bloquear actualización.
+
 ## [0.1.15] — 2026-08-24
 
 ### Conexión con SGC
