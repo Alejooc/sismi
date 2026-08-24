@@ -1,4 +1,4 @@
-name: Compilar Sismi para Windows
+name: Publicar Sismi para Windows
 
 on:
   workflow_dispatch:
@@ -7,8 +7,10 @@ on:
       - 'v*'
 
 jobs:
-  build-windows:
+  publish-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Descargar código
@@ -31,11 +33,18 @@ jobs:
         with:
           arch: x64
 
-      - name: Compilar ejecutable portable
-        run: npx tauri build
-
-      - name: Publicar artefacto
-        uses: actions/upload-artifact@v4
+      - name: Crear instalador y publicar actualización
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          name: sismi-windows
-          path: src-tauri/target/release/sismi.exe
+          tagName: v__VERSION__
+          releaseName: Sismi v__VERSION__
+          releaseBody: Descarga e instala esta versión de Sismi para mantener tu monitoreo sísmico actualizado.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          uploadUpdaterSignatures: true

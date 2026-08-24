@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.2] — 2026-08-24
+
+### Mejoras
+
+- Actualizaciones automáticas desde GitHub Releases.
+- Botón **Buscar actualizaciones** en **Acerca de Sismi**.
+- Instalador NSIS firmado para Windows.
+- Publicación automática de instaladores, firmas y `latest.json` mediante GitHub Actions.
+
 ## [0.1.1] — 2026-08-21
 
 ### Mejoras

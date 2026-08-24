@@ -326,6 +326,7 @@ html.native-window, html.native-window body { background: var(--panel); }
 .toggle.on span { transform: translateX(16px); }
 .secondary-button { width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 8px; border: 1px solid var(--primary); border-radius: 8px; background: transparent; color: var(--primary); font-size: 10px; font-weight: 700; cursor: pointer; }
 .secondary-button:hover { background: var(--primary-soft); }
+.secondary-button:disabled { opacity: .62; cursor: wait; }
 .test-alert-status { margin-top: 6px; color: var(--faint); font-size: 9px; text-align: center; }
 .theme-choice { width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding: 0 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 10px; font-weight: 650; cursor: pointer; }
 .theme-choice:hover { background: var(--surface-hover); }
@@ -361,6 +362,14 @@ html.native-window, html.native-window body { background: var(--panel); }
 .about-block p { margin-top: 6px; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .about-note { border-left-color: var(--warning); background: var(--warning-soft); }
 .about-note .about-kicker { color: var(--warning); }
+.about-update-block { border-left-color: var(--primary); }
+.about-update-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.about-update-heading strong { display: block; margin-top: 4px; color: var(--text); font-size: 11px; line-height: 1.3; }
+.about-update-version { flex: 0 0 auto; padding: 4px 6px; border-radius: 6px; background: var(--primary-soft); color: var(--primary); font-size: 9px; font-weight: 750; }
+.about-update-notes { overflow-wrap: anywhere; }
+.about-update-progress { height: 5px; overflow: hidden; margin-top: 10px; border-radius: 5px; background: var(--border); }
+.about-update-progress span { display: block; height: 100%; border-radius: inherit; background: var(--primary); transition: width .18s ease; }
+.about-update-button { margin-top: 11px; }
 .about-footer { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 19px 6px 2px; color: var(--faint); font-size: 9px; line-height: 1.35; text-align: center; }
 .about-footer img { width: 20px; height: 20px; object-fit: contain; opacity: .82; }
 

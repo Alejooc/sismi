@@ -11,7 +11,7 @@
   </p>
 </div>
 
-Sismi es una aplicación de escritorio pequeña y discreta para consultar actividad sísmica reciente, revisar el historial y recibir avisos cuando aparece un evento que coincide con tu configuración.
+Sismi es una aplicación de escritorio pequeña y discreta para consultar actividad sísmica reciente, revisar el historial y recibir avisos cuando aparece un evento que coincide con tu configuración. También puede actualizarse desde la propia app.
 
 ## Qué puedes hacer
 
@@ -25,14 +25,14 @@ Sismi es una aplicación de escritorio pequeña y discreta para consultar activi
 
 ## Descargar en Windows
 
-La descarga disponible actualmente es una versión portable: no requiere instalador.
+La descarga recomendada es el instalador oficial de Windows. Después de instalar Sismi, las nuevas versiones podrán descargarse desde **Acerca de Sismi → Actualizaciones**, sin reemplazar archivos manualmente.
 
 1. Abre la página de [Releases](https://github.com/Alejooc/sismi/releases/latest).
-2. Descarga `sismi.exe` desde la sección **Assets**.
-3. Guarda el archivo en una carpeta de tu elección y ejecútalo.
+2. Descarga el instalador `Sismi_<versión>_x64-setup.exe` desde la sección **Assets**.
+3. Ejecuta el instalador y sigue los pasos de Windows.
 4. Sismi quedará disponible en la bandeja del sistema. Haz clic izquierdo en el icono para mostrarlo y clic derecho para ver más opciones.
 
-Windows puede mostrar una advertencia de SmartScreen porque esta versión todavía no tiene firma digital. Si descargaste el archivo desde este repositorio, selecciona **Más información** → **Ejecutar de todas formas**.
+También se conserva una descarga portable cuando la publicación la incluye, pero esa modalidad no permite el mismo flujo de actualización automática que el instalador.
 
 La guía completa está en [Descargar y usar Sismi en Windows](docs/DESCARGAR-WINDOWS.md).
 
@@ -58,13 +58,15 @@ npm install
 npm run desktop:dev
 ```
 
-### Compilar la versión portable de Windows
+### Compilar el instalador de Windows
 
 ```powershell
 npm run desktop:build
 ```
 
-El ejecutable se genera en `src-tauri/target/release/sismi.exe`.
+El instalador se genera en `src-tauri/target/release/bundle/nsis/`. Para crear artefactos de actualización localmente se necesita la clave privada de firma en las variables `TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. El flujo recomendado para publicar es GitHub Actions.
+
+Consulta [Actualizaciones automáticas](docs/ACTUALIZACIONES.md) para configurar la publicación firmada.
 
 ## Fuentes de información
 
@@ -85,7 +87,7 @@ Las fuentes pueden publicar un mismo evento con tiempos, magnitudes o identifica
 
 ## Estado del proyecto
 
-La versión pública actual es `v0.1.1`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
+La versión pública actual es `v0.1.2`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
 
 ## Licencia
 

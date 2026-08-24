@@ -11,8 +11,13 @@ const WINDOWS_NOTIFICATION_APP_ID: &str = "com.sismi.desktop";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![send_sismi_notification])
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let window = app
                 .get_webview_window("main")
                 .expect("No se encontró la ventana principal de Sismi");

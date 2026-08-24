@@ -8,6 +8,7 @@ import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
 import { searchLocations } from './services/locations'
 import { closeWindow as closeDesktopWindow, isDesktopApp, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission } from './services/desktop'
+import { APP_VERSION, checkForSismiUpdate } from './services/updater'
 import './styles.css'
 
 const DEFAULT_LOCATION = { label: 'Bogotá, Colombia', lat: BOGOTA.lat, lon: BOGOTA.lon, radiusKm: 250 }
@@ -109,6 +110,7 @@ function App() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [activeAlert, setActiveAlert] = useState(null)
   const [testNotificationStatus, setTestNotificationStatus] = useState('')
+  const [updateState, setUpdateState] = useState({ status: 'idle', version: null, notes: '', percent: null })
   const [mapSource, setMapSource] = useState('all')
   const [mapMinMagnitude, setMapMinMagnitude] = useState(0)
   const [mapTimeRange, setMapTimeRange] = useState('all')
@@ -123,6 +125,7 @@ function App() {
   const hasLoadedFeed = useRef(false)
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
+  const updateRequestInFlight = useRef(false)
   const loaderStartedAt = useRef(Date.now())
   const loaderFinished = useRef(false)
 
@@ -163,6 +166,11 @@ function App() {
   useEffect(() => {
     if (isDesktopApp()) document.documentElement.classList.add('native-window')
     return () => document.documentElement.classList.remove('native-window')
+  }, [])
+  useEffect(() => {
+    if (!isDesktopApp()) return undefined
+    const timer = window.setTimeout(() => checkForAppUpdate({ automatic: true }), 1800)
+    return () => window.clearTimeout(timer)
   }, [])
   useEffect(() => {
     const controller = new AbortController()
@@ -227,6 +235,23 @@ function App() {
     await playAlertSound()
     await notifyEvent(testAlert)
     setTestNotificationStatus('Alerta enviada correctamente.')
+  }
+
+  async function checkForAppUpdate({ install = false, automatic = false } = {}) {
+    if (updateRequestInFlight.current) return
+    updateRequestInFlight.current = true
+    setUpdateState((current) => ({ ...current, status: install ? 'downloading' : 'checking', percent: install ? 0 : null }))
+    try {
+      const result = await checkForSismiUpdate({
+        install,
+        onProgress: ({ percent }) => setUpdateState((current) => ({ ...current, status: 'downloading', percent })),
+      })
+      setUpdateState((current) => ({ ...current, ...result, percent: result.status === 'available' ? null : current.percent }))
+    } catch (error) {
+      setUpdateState((current) => ({ ...current, status: automatic ? 'unavailable' : 'error', error: error?.message || '' }))
+    } finally {
+      updateRequestInFlight.current = false
+    }
   }
 
   async function announceAlerts(candidateEvents, center, threshold, scope) {
@@ -334,10 +359,10 @@ function App() {
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, close: () => setSettingsOpen(false) }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
-        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} conectados</span><span>v0.1.1</span></footer>
+        <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} conectados</span><span>v{APP_VERSION}</span></footer>
       </section>
     </main>
   )
@@ -351,11 +376,11 @@ function EarthquakeAlert({ event, onClose }) {
   return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'PRUEBA DE ALERTA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Detectado ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, close }) {
+function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
       <header className="drawer-heading"><div><button className="back-button" onClick={aboutOpen ? () => setAboutOpen(false) : close} aria-label={aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{aboutOpen ? 'Información de la aplicación' : 'Preferencias del monitor'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
-      {aboutOpen ? <AboutPanel /> : <div className="settings-content">
+      {aboutOpen ? <AboutPanel updateState={updateState} checkForAppUpdate={checkForAppUpdate} /> : <div className="settings-content">
         <section className="settings-section">
           <div className="section-heading"><span className="section-icon"><Icon name="locate" size={16} /></span><div><strong>Ubicación</strong><span>Centro del radio de monitoreo</span></div></div>
           <div className="segmented"><button className={locationMode === 'search' ? 'selected' : ''} onClick={() => setLocationMode('search')}>Buscar lugar</button><button className={locationMode === 'auto' ? 'selected' : ''} onClick={requestCurrentLocation}>Ubicación actual</button></div>
@@ -389,12 +414,12 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
   )
 }
 
-function AboutPanel() {
+function AboutPanel({ updateState, checkForAppUpdate }) {
   return (
     <div className="about-content">
       <div className="about-hero">
         <div className="about-logo"><span /><img src="/sismi-logo.png" alt="Logo de Sismi" /></div>
-        <div><span className="about-kicker">MONITOREO SÍSMICO</span><h3>Sismi</h3><p>Información clara para estar preparado</p><span className="about-version">Versión 0.1.1</span></div>
+        <div><span className="about-kicker">MONITOREO SÍSMICO</span><h3>Sismi</h3><p>Información clara para estar preparado</p><span className="about-version">Versión {APP_VERSION}</span></div>
       </div>
       <p className="about-intro">Sismi reúne información sísmica reciente en un panel pequeño, claro y siempre disponible desde la bandeja del sistema.</p>
 
@@ -407,9 +432,40 @@ function AboutPanel() {
 
       <section className="about-block"><span className="about-kicker">QUÉ HACE SISMI</span><p>Consulta el historial de sismos, muestra los eventos sobre un globo interactivo y avisa cuando aparece un evento que coincide con tu magnitud y cobertura configuradas.</p></section>
       <section className="about-block about-note"><span className="about-kicker">NOTA IMPORTANTE</span><p>Los datos y avisos dependen de la disponibilidad y el tiempo de publicación de las fuentes oficiales. Sismi es una herramienta informativa y no reemplaza las instrucciones de las autoridades.</p></section>
+      <section className="about-block about-update-block">
+        <div className="about-update-heading"><div><span className="about-kicker">ACTUALIZACIONES</span><strong>{getUpdateTitle(updateState)}</strong></div><span className="about-update-version">v{APP_VERSION}</span></div>
+        {updateState.status === 'available' && <p className="about-update-notes">Nueva versión disponible: v{updateState.version}{updateState.notes ? ` · ${updateState.notes}` : ''}</p>}
+        {updateState.status === 'downloading' && <div className="about-update-progress"><span style={{ width: `${updateState.percent ?? 8}%` }} /></div>}
+        <button className="secondary-button about-update-button" disabled={updateState.status === 'checking' || updateState.status === 'downloading'} onClick={() => checkForAppUpdate({ install: updateState.status === 'available' })}>
+          <Icon name={updateState.status === 'available' ? 'refresh' : 'search'} size={15} />
+          {getUpdateAction(updateState)}
+        </button>
+        <p className="test-alert-status">Las actualizaciones se verifican de forma segura desde GitHub.</p>
+      </section>
       <div className="about-footer"><img src="/sismi-logo.png" alt="" /><span>Actividad sísmica cerca de ti, cuando más importa.</span></div>
     </div>
   )
+}
+
+function getUpdateTitle(updateState) {
+  const titles = {
+    checking: 'Buscando una versión nueva…',
+    downloading: 'Instalando actualización…',
+    'up-to-date': 'Sismi está actualizado',
+    available: 'Hay una actualización disponible',
+    error: 'No se pudo comprobar ahora',
+    unavailable: 'Actualizaciones no disponibles ahora',
+    unsupported: 'Actualizaciones disponibles en la app de Windows',
+    idle: 'Mantén Sismi al día',
+  }
+  return titles[updateState?.status] || titles.idle
+}
+
+function getUpdateAction(updateState) {
+  if (updateState?.status === 'available') return `Instalar v${updateState.version}`
+  if (updateState?.status === 'checking') return 'Buscando…'
+  if (updateState?.status === 'downloading') return updateState.percent ? `Descargando ${updateState.percent}%` : 'Descargando…'
+  return 'Buscar actualizaciones'
 }
 
 function LocationSearch({ currentLocation, onSelect }) {

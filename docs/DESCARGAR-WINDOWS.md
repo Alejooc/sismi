@@ -3,11 +3,11 @@
 ## Descarga rápida
 
 1. Entra a la [última versión publicada](https://github.com/Alejooc/sismi/releases/latest).
-2. En **Assets**, descarga `sismi.exe`.
-3. Coloca el archivo en una carpeta permanente, por ejemplo `Documentos\Sismi`.
-4. Haz doble clic para abrirlo.
+2. En **Assets**, descarga el instalador `Sismi_<versión>_x64-setup.exe`.
+3. Ejecuta el instalador y elige dónde quieres instalar Sismi.
+4. Abre Sismi desde el acceso directo o desde el menú Inicio.
 
-Sismi es portable en esta etapa: no instala un asistente ni modifica carpetas del sistema. Para crear un acceso directo, haz clic derecho sobre `sismi.exe` y elige **Enviar a → Escritorio (crear acceso directo)**.
+El instalador crea los accesos necesarios y permite que Sismi reciba actualizaciones desde la propia aplicación.
 
 ## Primera ejecución
 
@@ -19,15 +19,9 @@ Al abrirse, Sismi se ubica cerca de la esquina inferior derecha y deja su icono 
 
 Para recibir notificaciones del sistema, entra en **Configuración → Alertas** y usa **Probar alerta de sismo**. Si Windows bloquea los avisos, revisa **Configuración de Windows → Sistema → Notificaciones** y habilita las notificaciones para Sismi.
 
-## SmartScreen
+## Actualizar Sismi
 
-La versión portable todavía no tiene firma digital. Windows puede mostrar un aviso de protección al abrirla por primera vez.
-
-Si descargaste `sismi.exe` desde la sección oficial de Releases de este repositorio:
-
-1. Selecciona **Más información**.
-2. Comprueba que quieres abrir `sismi.exe`.
-3. Selecciona **Ejecutar de todas formas**.
+Desde la app abre **Configuración → Acerca de Sismi → Actualizaciones** y pulsa **Buscar actualizaciones**. Si hay una nueva versión, Sismi la descargará e instalará al reiniciar.
 
 ## Requisitos
 
@@ -37,7 +31,7 @@ Si descargaste `sismi.exe` desde la sección oficial de Releases de este reposit
 
 ## Desinstalar
 
-Como es una versión portable, cierra Sismi, elimina el acceso directo y borra `sismi.exe`. Tus preferencias locales pueden permanecer en el perfil de la aplicación de Windows.
+Usa **Configuración de Windows → Aplicaciones → Aplicaciones instaladas → Sismi → Desinstalar**. Tus preferencias locales pueden permanecer en el perfil de la aplicación de Windows.
 
 ## Compilar desde el código fuente
 
@@ -48,4 +42,4 @@ npm install
 npm run desktop:build
 ```
 
-El resultado se encuentra en `src-tauri/target/release/sismi.exe`.
+El instalador se encuentra en `src-tauri/target/release/bundle/nsis/`.
