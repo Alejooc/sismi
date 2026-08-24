@@ -305,7 +305,8 @@ function App() {
   }
 
   function selectSearchedLocation(place) {
-    setLocation({ label: place.label, lat: place.latitude, lon: place.longitude, radiusKm: location.radiusKm })
+    const radiusKm = place.isCountry ? Math.max(location.radiusKm, 800) : location.radiusKm
+    setLocation({ label: place.label, lat: place.latitude, lon: place.longitude, radiusKm, isCountry: Boolean(place.isCountry), countryCode: place.countryCode || null })
     setLocationMode('search')
     setLocationStatus(`Avisos configurados para ${place.label}.`)
   }
@@ -316,7 +317,7 @@ function App() {
     navigator.geolocation.getCurrentPosition((position) => {
       const lat = Number(position.coords.latitude.toFixed(5))
       const lon = Number(position.coords.longitude.toFixed(5))
-      setLocation({ label: 'Ubicación actual', lat, lon, radiusKm: location.radiusKm })
+      setLocation({ label: 'Ubicación actual', lat, lon, radiusKm: location.radiusKm, isCountry: false, countryCode: null })
       setLocationMode('auto')
       setLocationStatus('Usaremos la ubicación de este equipo.')
     }, (error) => {
@@ -386,7 +387,7 @@ function App() {
               <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
             </section>
 
-            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>Distancia de aviso: {location.radiusKm} km</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
+            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>{location.isCountry ? 'Cobertura nacional' : `Distancia de aviso: ${location.radiusKm} km`}</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
           </div>
         ) : activeTab === 'history' ? (
           <div className="history-panel">
@@ -433,7 +434,7 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Elige qué sismos quieres recibir</span></div></div>
           <div className="alert-scope-label"><span>Dónde recibir avisos</span><strong>{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</strong></div>
           <div className="alert-scope-picker" role="group" aria-label="Dónde recibir avisos">
-            <button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')} aria-pressed={alertScope === 'nearby'}><span><Icon name="locate" size={17} /></span><div><strong>Mi zona</strong><small>Dentro de {location.radiusKm} km de {location.label}</small></div>{alertScope === 'nearby' && <Icon name="check" size={17} />}</button>
+            <button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')} aria-pressed={alertScope === 'nearby'}><span><Icon name="locate" size={17} /></span><div><strong>Mi zona</strong><small>{location.isCountry ? `En todo ${location.label}` : `Dentro de ${location.radiusKm} km de ${location.label}`}</small></div>{alertScope === 'nearby' && <Icon name="check" size={17} />}</button>
             <button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')} aria-pressed={alertScope === 'global'}><span><Icon name="globe" size={17} /></span><div><strong>Todo el mundo</strong><small>Recibe avisos de cualquier país</small></div>{alertScope === 'global' && <Icon name="check" size={17} />}</button>
           </div>
           <label className="range-field"><span><span>Magnitud mínima</span><strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="1" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
@@ -546,7 +547,7 @@ function LocationSearch({ currentLocation, onSelect }) {
       <label className="location-search-field"><Icon name="search" size={16} /><input role="combobox" aria-label="Buscar ciudad o municipio" aria-expanded={open && results.length > 0} aria-controls="location-results" value={query} onChange={(event) => { setQuery(event.target.value); setOpen(true) }} onFocus={() => results.length && setOpen(true)} onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }} placeholder="Ciudad, municipio o código postal" />{query && <button onClick={() => { setQuery(''); setResults([]); setOpen(false) }} aria-label="Limpiar ubicación"><Icon name="close" size={14} /></button>}</label>
       {open && results.length > 0 && <div className="location-options" id="location-results" role="listbox">{results.map((place) => <button key={place.id} role="option" aria-selected="false" onMouseDown={(event) => event.preventDefault()} onClick={() => choose(place)}><span><Icon name="locate" size={15} /></span><div><strong>{place.name}</strong><small>{[place.region, place.country].filter(Boolean).join(', ')}</small></div><Icon name="chevron" size={14} /></button>)}</div>}
       {status && <p className="location-search-status" role="status">{status}</p>}
-      <div className="selected-location"><span><Icon name="locate" size={16} /></span><div><strong>{currentLocation.label}</strong><small>Ubicación seleccionada</small></div><Icon name="check" size={17} /></div>
+      <div className="selected-location"><span><Icon name="locate" size={16} /></span><div><strong>{currentLocation.label}</strong><small>{currentLocation.isCountry ? 'Cobertura nacional' : 'Ubicación seleccionada'}</small></div><Icon name="check" size={17} /></div>
       <p className="location-attribution">Búsqueda de lugares: Open-Meteo / GeoNames</p>
     </div>
   )

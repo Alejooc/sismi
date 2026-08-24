@@ -23,6 +23,7 @@ export async function searchLocations(query, signal) {
     latitude: Number(place.latitude),
     longitude: Number(place.longitude),
     timezone: place.timezone || '',
+    isCountry: Boolean(place.name && place.country && !place.admin1 && !place.admin2 && place.name.toLowerCase() === place.country.toLowerCase()),
     label: [place.name, place.admin1, place.country].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(', '),
   }))
 }

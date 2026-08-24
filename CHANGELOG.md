@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.10] — 2026-08-24
+
+### Ubicaciones
+
+- La búsqueda de un país activa una cobertura nacional en lugar de tratarlo como una ciudad.
+- Ahora se muestra claramente cuando el historial y los avisos cubren todo el país seleccionado.
+
 ## [0.1.9] — 2026-08-24
 
 ### Correcciones
