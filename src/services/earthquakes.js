@@ -78,7 +78,7 @@ function normalizeEvent(feature) {
 }
 
 async function fetchUsgs(signal) {
-  const response = await fetch(USGS_DAILY_FEED, { signal, cache: 'no-store' })
+  const response = await fetch(`${USGS_DAILY_FEED}?_=${Date.now()}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`USGS respondió con ${response.status}`)
   const payload = await response.json()
   return payload.features
@@ -90,7 +90,7 @@ async function fetchSgc(signal) {
   const endDate = new Date()
   const startDate = new Date(endDate)
   startDate.setDate(startDate.getDate() - 7)
-  const params = new URLSearchParams({ startdate: toDateParam(startDate), enddate: toDateParam(endDate) })
+  const params = new URLSearchParams({ startdate: toDateParam(startDate), enddate: toDateParam(endDate), _: String(Date.now()) })
   const response = await fetch(`${SGC_FEED}?${params}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`SGC respondió con ${response.status}`)
   const payload = await response.json()

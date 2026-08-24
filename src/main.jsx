@@ -134,6 +134,7 @@ function App() {
   const hasLoadedFeed = useRef(false)
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
+  const previousLocationKey = useRef(null)
   const updateRequestInFlight = useRef(false)
   const updateNoticeShown = useRef(false)
   const loaderStartedAt = useRef(Date.now())
@@ -170,6 +171,21 @@ function App() {
 
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
   useEffect(() => { locationRef.current = location; writeStoredValue('sismi-location', location) }, [location])
+  useEffect(() => {
+    const nextLocationKey = [location.lat, location.lon].map((value) => Number(value).toFixed(5)).join(':')
+    if (previousLocationKey.current === null) {
+      previousLocationKey.current = nextLocationKey
+      return
+    }
+    if (previousLocationKey.current === nextLocationKey) return
+
+    previousLocationKey.current = nextLocationKey
+    setAlertScope('nearby')
+    setHistoryQuery('')
+    setSelectedEvent(null)
+    setActiveAlert(null)
+    loadFeed()
+  }, [location.lat, location.lon])
   useEffect(() => { writeStoredValue('sismi-location-mode', locationMode) }, [locationMode])
   useEffect(() => { minMagnitudeRef.current = minMagnitude; writeStoredValue('sismi-min-magnitude', minMagnitude) }, [minMagnitude])
   useEffect(() => { alertScopeRef.current = alertScope; writeStoredValue('sismi-alert-scope', alertScope) }, [alertScope])
@@ -204,14 +220,14 @@ function App() {
       newEvents.forEach((event) => detectedAtByKey.current.set(getEventKey(event), detectedAt))
       const eventsWithDetection = freshEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
       const newlyDetectedEvents = newEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
-      if (freshEvents.length > 0) setEvents(eventsWithDetection)
+      setEvents(eventsWithDetection)
       setSourceStatus([...new Set(freshEvents.map((event) => event.source))].join(' + '))
       freshEvents.forEach((event) => knownEventIds.current.add(getEventKey(event)))
       hasLoadedFeed.current = true
       lastSuccessfulFeedAt.current = Date.now()
       if (notificationsRef.current && newlyDetectedEvents.length > 0) announceAlerts(newlyDetectedEvents, locationRef.current, minMagnitudeRef.current, alertScopeRef.current)
       setFeedError(null)
-      setLastChecked('ahora')
+      setLastChecked(formatClock(detectedAt))
     } catch (error) {
       if (error.name !== 'AbortError') { setFeedError('No pudimos traer información nueva'); setLastChecked('sin actualizar') }
     } finally {

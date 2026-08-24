@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.9] — 2026-08-24
+
+### Correcciones
+
+- El historial se actualiza al cambiar la ciudad o la ubicación del equipo.
+- Al cambiar de ubicación, la vista pasa a “Mi zona” y limpia la búsqueda anterior.
+- Se evita conservar registros antiguos cuando una fuente responde sin eventos.
+- Las consultas a las fuentes incluyen una marca nueva para evitar respuestas almacenadas.
+
 ## [0.1.8] — 2026-08-24
 
 ### Actualizaciones
