@@ -2,6 +2,17 @@ export function isDesktopApp() {
   return typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__)
 }
 
+export async function fetchSgcCatalog(startDate, endDate, signal) {
+  if (!isDesktopApp()) return null
+  if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
+
+  const { invoke } = await import('@tauri-apps/api/core')
+  const events = await invoke('fetch_sgc_events', { startDate, endDate })
+
+  if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
+  return Array.isArray(events) ? events : []
+}
+
 export async function minimizeWindow() {
   if (!isDesktopApp()) return
   const { getCurrentWindow } = await import('@tauri-apps/api/window')

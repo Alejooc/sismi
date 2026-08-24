@@ -1,3 +1,6 @@
+use futures_util::future::try_join_all;
+use reqwest::Client;
+use serde_json::{json, Value};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -12,7 +15,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![send_sismi_notification])
+        .invoke_handler(tauri::generate_handler![send_sismi_notification, fetch_sgc_events])
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
@@ -98,6 +101,60 @@ fn send_sismi_notification(title: String, body: String) -> Result<(), String> {
     let _ = (title, body);
 
     Ok(())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
+    let client = Client::builder()
+        .user_agent("Sismi/0.1.11")
+        .build()
+        .map_err(|error| format!("No se pudo preparar la consulta de SGC: {error}"))?;
+    let query = json!({
+        "local_time_after": format!("{startDate}T00:00:00.000Z"),
+        "local_time_before": format!("{endDate}T23:59:59.999Z"),
+    });
+
+    let first_page = fetch_sgc_page(&client, &query, 1).await?;
+    let total = first_page
+        .get("count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let page_count = (total.saturating_add(99)) / 100;
+
+    let mut pages = vec![first_page];
+    if page_count > 1 {
+        let requests = (2..=page_count).map(|page| fetch_sgc_page(&client, &query, page));
+        pages.extend(try_join_all(requests).await?);
+    }
+
+    Ok(pages
+        .into_iter()
+        .flat_map(|page| {
+            page.get("results")
+                .and_then(|results| results.get("results"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .collect())
+}
+
+async fn fetch_sgc_page(client: &Client, query: &Value, page: u64) -> Result<Value, String> {
+    client
+        .post(format!(
+            "https://apicatalogador.sgc.gov.co/api/events/search/?page={page}"
+        ))
+        .header("Accept", "application/json")
+        .json(query)
+        .send()
+        .await
+        .map_err(|error| format!("No se pudo consultar SGC: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("SGC respondió con un error: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("SGC devolvió una respuesta inválida: {error}"))
 }
 
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {

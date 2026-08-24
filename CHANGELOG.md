@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.11] — 2026-08-24
+
+### Datos del SGC
+
+- La aplicación de escritorio consulta el catálogo actualizado del Servicio Geológico Colombiano.
+- El historial incluye los registros más recientes del día y recorre todas las páginas disponibles del catálogo.
+- Se conserva el resumen anterior como respaldo para la vista web de desarrollo.
+
 ## [0.1.10] — 2026-08-24
 
 ### Ubicaciones
