@@ -76,6 +76,12 @@ const INITIAL_SOURCE_HEALTH = {
   USGS: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
 }
 
+const DEFAULT_EMERGENCY_CONTACTS = [
+  { id: 'emergency-123', name: 'Emergencias', number: '123', note: 'Línea única nacional', isDefault: true },
+  { id: 'red-cross-132', name: 'Cruz Roja', number: '132', note: 'Atención y socorro', isDefault: true },
+  { id: 'firefighters-119', name: 'Bomberos', number: '119', note: 'Reporte de emergencias', isDefault: true },
+]
+
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }
   const paths = {
@@ -94,10 +100,13 @@ function Icon({ name, size = 18 }) {
     map: <><path d="m9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3Z" /><path d="M9 3v15M15 6v15" /></>,
     minus: <path d="M5 12h14" />,
     moon: <path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" />,
+    plus: <><path d="M12 5v14M5 12h14" /></>,
     refresh: <><path d="M20 11a8.1 8.1 0 0 0-14.9-3L3 11" /><path d="M3 5v6h6" /><path d="M4 13a8.1 8.1 0 0 0 14.9 3L21 13" /><path d="M21 19v-6h-6" /></>,
     search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
     signal: <><path d="M5 20v-3" /><path d="M9.5 20v-6" /><path d="M14.5 20v-9" /><path d="M19 20V7" /></>,
+    shield: <><path d="M12 3 20 6v5c0 5.1-3.3 8.7-8 10-4.7-1.3-8-4.9-8-10V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-4.8" /></>,
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+    phone: <><path d="M6.6 3.5 9 3l1.6 4-1.8 1.5a13.8 13.8 0 0 0 6.7 6.7l1.5-1.8 4 1.6-.5 2.4a2 2 0 0 1-2.2 1.6C10.6 18.1 5.9 13.4 5 5.7a2 2 0 0 1 1.6-2.2Z" /></>,
   }
   return <svg {...common}>{paths[name]}</svg>
 }
@@ -108,6 +117,7 @@ function App() {
   const [notifications, setNotifications] = useState(() => readStoredValue('sismi-alerts', true))
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [safetyOpen, setSafetyOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastChecked, setLastChecked] = useState('iniciando…')
   const [events, setEvents] = useState(initialEvents)
@@ -359,7 +369,8 @@ function App() {
           </div>
           <div className="window-actions">
             <button className="icon-button" title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'} aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'} onClick={toggleTheme}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
-            <button className="icon-button" title="Configuración" aria-label="Configuración" onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}><Icon name="settings" size={17} /></button>
+            <button className="icon-button" title="Modo seguridad" aria-label="Abrir modo seguridad" onClick={() => { setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }}><Icon name="shield" size={16} /></button>
+            <button className="icon-button" title="Configuración" aria-label="Configuración" onClick={() => { setAboutOpen(false); setSafetyOpen(false); setSettingsOpen(true) }}><Icon name="settings" size={17} /></button>
             <button className="icon-button" title="Ocultar" aria-label="Ocultar en la bandeja" onClick={minimizeDesktopWindow}><Icon name="minus" size={17} /></button>
             <button className="icon-button close-button" title="Cerrar" aria-label="Ocultar en la bandeja" onClick={closeDesktopWindow}><Icon name="close" size={16} /></button>
           </div>
@@ -372,7 +383,7 @@ function App() {
 
         {feedError && <div className="feed-alert" role="status">{feedError}. Mostrando los últimos registros.</div>}
         {(updateState.status === 'available' || updateState.status === 'downloading') && !updateNoticeDismissed && <UpdateBanner version={updateState.version} downloading={updateState.status === 'downloading'} percent={updateState.percent} onInstall={() => checkForAppUpdate({ install: true })} onDismiss={() => setUpdateNoticeDismissed(true)} />}
-        {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} />}
+        {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} onSafety={() => { setActiveAlert(null); setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }} />}
 
         <nav className="tabs" aria-label="Secciones">
           <button className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Ahora</button>
@@ -406,7 +417,7 @@ function App() {
               <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
             </section>
 
-            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>{location.isCountry ? 'Cobertura nacional' : `Distancia de aviso: ${location.radiusKm} km`}</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
+            <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>{location.isCountry ? 'Cobertura nacional' : `Distancia de aviso: ${location.radiusKm} km`}</span></div><button onClick={() => { setAboutOpen(false); setSafetyOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
           </div>
         ) : activeTab === 'history' ? (
           <div className="history-panel">
@@ -419,7 +430,7 @@ function App() {
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
         <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
@@ -432,15 +443,15 @@ function AppLoader() {
   return <div className="app-loader" role="status" aria-live="polite"><div className="loader-logo-wrap"><span className="loader-ring" /><img src="/sismi-logo.png" alt="" /></div><strong>Cargando Sismi</strong><span>Consultando información sísmica</span><div className="loader-progress"><i /></div></div>
 }
 
-function EarthquakeAlert({ event, onClose }) {
-  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
+function EarthquakeAlert({ event, onClose, onSafety }) {
+  return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p><button className="alert-safety-link" onClick={onSafety}><Icon name="shield" size={13} />Qué hacer ahora</button></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
+function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
-      <header className="drawer-heading"><div><button className="back-button" onClick={aboutOpen ? () => setAboutOpen(false) : close} aria-label={aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
-      {aboutOpen ? <AboutPanel updateState={updateState} checkForAppUpdate={checkForAppUpdate} /> : <div className="settings-content">
+      <header className="drawer-heading"><div><button className="back-button" onClick={safetyOpen ? () => setSafetyOpen(false) : aboutOpen ? () => setAboutOpen(false) : close} aria-label={safetyOpen || aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{safetyOpen ? 'Modo seguridad' : aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{safetyOpen ? 'Guía disponible sin conexión' : aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
+      {safetyOpen ? <SafetyPanel /> : aboutOpen ? <AboutPanel updateState={updateState} checkForAppUpdate={checkForAppUpdate} /> : <div className="settings-content">
         <section className="settings-section">
           <div className="section-heading"><span className="section-icon"><Icon name="locate" size={16} /></span><div><strong>Ubicación</strong><span>Lugar desde el que recibirás avisos</span></div></div>
           <div className="segmented"><button className={locationMode === 'search' ? 'selected' : ''} onClick={() => setLocationMode('search')}>Elegir ciudad</button><button className={locationMode === 'auto' ? 'selected' : ''} onClick={requestCurrentLocation}>Usar mi ubicación</button></div>
@@ -450,6 +461,10 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
         </section>
 
         <DataStatusSection sourceHealth={sourceHealth} lastSyncAt={lastSyncAt} refreshing={refreshing} onRefresh={refreshNow} />
+
+        <section className="settings-section safety-entry-section">
+          <button className="safety-entry" onClick={() => setSafetyOpen(true)}><span className="safety-entry-icon"><Icon name="shield" size={17} /></span><span><strong>Modo seguridad</strong><small>Qué hacer y a quién llamar durante una emergencia</small></span><Icon name="chevron" size={16} /></button>
+        </section>
 
         <section className="settings-section">
           <div className="section-heading"><span className="section-icon"><Icon name="activity" size={16} /></span><div><strong>Alertas</strong><span>Elige qué sismos quieres recibir</span></div></div>
@@ -492,6 +507,65 @@ function SourceStatusRow({ source, label, health }) {
   const isError = health?.status === 'error'
   const statusText = isOk ? `${health.count} registros` : isError ? 'Sin respuesta' : 'Consultando…'
   return <div className="source-status-row"><span className={`source-status-dot ${isOk ? 'is-ok' : isError ? 'is-error' : 'is-pending'}`} /><div><strong>{source}</strong><small>{label}</small></div><span className={`source-status-copy ${isError ? 'is-error' : ''}`}>{statusText}</span></div>
+}
+
+function SafetyPanel() {
+  const [guideTab, setGuideTab] = useState('during')
+  const [contacts, setContacts] = useState(() => {
+    const saved = readStoredValue('sismi-safety-contacts', null)
+    return Array.isArray(saved) && saved.length > 0 ? saved : DEFAULT_EMERGENCY_CONTACTS
+  })
+  const [addingContact, setAddingContact] = useState(false)
+  const [newContact, setNewContact] = useState({ name: '', number: '', note: '' })
+  const [contactNotice, setContactNotice] = useState('')
+
+  useEffect(() => { writeStoredValue('sismi-safety-contacts', contacts) }, [contacts])
+
+  async function copyContact(contact) {
+    try {
+      await navigator.clipboard.writeText(contact.number)
+      setContactNotice(`${contact.number} copiado.`)
+    } catch {
+      setContactNotice(`Número de ${contact.name}: ${contact.number}`)
+    }
+    window.setTimeout(() => setContactNotice(''), 2600)
+  }
+
+  function addContact(event) {
+    event.preventDefault()
+    const name = newContact.name.trim()
+    const number = newContact.number.trim()
+    if (!name || !number) {
+      setContactNotice('Escribe un nombre y un número.')
+      return
+    }
+    setContacts((current) => [...current, { id: `custom-${Date.now()}`, name, number, note: newContact.note.trim() || 'Contacto personal', isDefault: false }])
+    setNewContact({ name: '', number: '', note: '' })
+    setAddingContact(false)
+    setContactNotice('Contacto guardado en este equipo.')
+  }
+
+  const steps = guideTab === 'during'
+    ? [
+      ['Agáchate, cúbrete y agárrate', 'Protege la cabeza y el cuello debajo de una mesa resistente o junto a un mueble firme.'],
+      ['Aléjate de lo que pueda caer', 'Evita ventanas, espejos, estantes, lámparas y objetos pesados.'],
+      ['Permanece en el lugar seguro', 'No uses ascensores ni corras hacia la salida mientras el suelo se mueve.'],
+      ['Si estás afuera', 'Aléjate de fachadas, postes, árboles y cables. Busca un espacio abierto.'],
+    ]
+    : [
+      ['Revisa si hay personas heridas', 'Ayuda solo si es seguro hacerlo y evita mover a alguien con lesiones graves.'],
+      ['Aléjate de edificios dañados', 'Sal de forma ordenada y mantente lejos de ventanas, fachadas y cables.'],
+      ['Prevén otros riesgos', 'Si es seguro y sabes hacerlo, cierra gas, agua o electricidad. No enciendas fuego si huele a gas.'],
+      ['Prepárate para réplicas', 'Sigue a las autoridades y usa los contactos de emergencia si alguien necesita ayuda.'],
+    ]
+
+  return <div className="safety-content">
+    <div className="safety-banner"><span className="safety-banner-icon"><Icon name="shield" size={20} /></span><div><strong>Guía rápida para una emergencia</strong><p>Esta información está guardada en Sismi y se puede consultar sin conexión.</p></div></div>
+    <div className="safety-guide-tabs" role="tablist" aria-label="Guía de seguridad"><button className={guideTab === 'during' ? 'selected' : ''} onClick={() => setGuideTab('during')} role="tab" aria-selected={guideTab === 'during'}>Durante el sismo</button><button className={guideTab === 'after' ? 'selected' : ''} onClick={() => setGuideTab('after')} role="tab" aria-selected={guideTab === 'after'}>Después</button></div>
+    <section className="safety-guide-section"><div className="safety-section-heading"><span>{guideTab === 'during' ? '01' : '02'}</span><div><strong>{guideTab === 'during' ? 'Mientras está temblando' : 'Cuando termine el movimiento'}</strong><small>Prioriza tu seguridad y la de quienes están contigo.</small></div></div><div className="safety-steps">{steps.map(([title, detail], index) => <div className="safety-step" key={title}><span>{index + 1}</span><div><strong>{title}</strong><p>{detail}</p></div></div>)}</div></section>
+    <section className="safety-contacts-section"><div className="safety-section-heading"><span><Icon name="phone" size={15} /></span><div><strong>Contactos de emergencia</strong><small>Líneas frecuentes en Colombia y contactos guardados.</small></div></div><div className="safety-contact-list">{contacts.map((contact) => <div className="safety-contact" key={contact.id}><span className="safety-contact-icon"><Icon name="phone" size={14} /></span><div><strong>{contact.name}</strong><small>{contact.note}</small></div><a className="contact-call" href={`tel:${contact.number.replace(/[^0-9+#*]/g, '')}`} aria-label={`Llamar a ${contact.name}`}>{contact.number}</a><button className="contact-copy" onClick={() => copyContact(contact)}>Copiar</button>{!contact.isDefault && <button className="contact-remove" onClick={() => setContacts((current) => current.filter((item) => item.id !== contact.id))} aria-label={`Eliminar ${contact.name}`}>×</button>}</div>)}</div><button className="safety-add-contact" onClick={() => setAddingContact((current) => !current)}><Icon name={addingContact ? 'close' : 'plus'} size={14} />{addingContact ? 'Cancelar' : 'Agregar contacto'}</button>{addingContact && <form className="contact-form" onSubmit={addContact}><input value={newContact.name} onChange={(event) => setNewContact((current) => ({ ...current, name: event.target.value }))} placeholder="Nombre" aria-label="Nombre del contacto" /><input value={newContact.number} onChange={(event) => setNewContact((current) => ({ ...current, number: event.target.value }))} placeholder="Número" aria-label="Número del contacto" inputMode="tel" /><input value={newContact.note} onChange={(event) => setNewContact((current) => ({ ...current, note: event.target.value }))} placeholder="Descripción opcional" aria-label="Descripción del contacto" /><button className="secondary-button" type="submit">Guardar contacto</button></form>}{contactNotice && <p className="contact-notice" role="status">{contactNotice}</p>}</section>
+    <p className="safety-disclaimer">Sismi es una herramienta informativa. En una emergencia, comunícate con las autoridades y sigue sus indicaciones.</p>
+  </div>
 }
 
 function AboutPanel({ updateState, checkForAppUpdate }) {

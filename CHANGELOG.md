@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.13] — 2026-08-24
+
+### Modo seguridad
+
+- Guía rápida para actuar durante y después de un sismo.
+- Contactos de emergencia de Colombia y opción para agregar contactos personales.
+- Contactos guardados en el equipo para consultarlos sin conexión.
+- Acceso rápido desde el escudo de la barra superior y desde las alertas.
+
 ## [0.1.12] — 2026-08-24
 
 ### Monitoreo y avisos
