@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.4] — 2026-08-24
+
+### Mejoras visuales
+
+- Marcadores del globo mundial más pequeños, suaves y verdes, sin puntos naranjas dominantes.
+- Ondas de propagación limitadas a eventos de magnitud 3 o superior para reducir ruido visual.
+- Etiquetas de ciudades y ubicación ajustadas para acercamientos prácticos.
+
 ## [0.1.3] — 2026-08-24
 
 ### Correcciones
