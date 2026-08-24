@@ -131,16 +131,17 @@ function App() {
 
   const last24Hours = Date.now() - 24 * 60 * 60 * 1000
   const nearbyEvents = useMemo(() => events.filter((event) => event.timestamp >= last24Hours && isNearby(event, location)), [events, location, last24Hours])
-  const scopedRecentEvents = useMemo(() => alertScope === 'global' ? events : events.filter((event) => isNearby(event, location)), [alertScope, events, location])
+  const scopedEvents = useMemo(() => alertScope === 'global' ? events : events.filter((event) => isNearby(event, location)), [alertScope, events, location])
+  const scopedRecentEvents = useMemo(() => scopedEvents.filter((event) => event.timestamp >= last24Hours), [last24Hours, scopedEvents])
   const latestNearby = nearbyEvents[0]
-  const latest = latestNearby || events[0]
+  const latest = latestNearby || events[0] || initialEvents[0]
   const nearbyCount = countNearby(events, location)
   const latestDistance = distanceBetween(location, latest)
   const filteredEvents = useMemo(() => {
     const query = historyQuery.trim().toLowerCase()
-    if (!query) return events
-    return events.filter((event) => [event.place, event.source, event.id, event.metadata?.title, event.metadata?.agency].filter(Boolean).join(' ').toLowerCase().includes(query))
-  }, [events, historyQuery])
+    if (!query) return scopedEvents
+    return scopedEvents.filter((event) => [event.place, event.source, event.id, event.metadata?.title, event.metadata?.agency].filter(Boolean).join(' ').toLowerCase().includes(query))
+  }, [historyQuery, scopedEvents])
   const filteredMapEvents = useMemo(() => {
     const query = mapQuery.trim().toLowerCase()
     const now = Date.now()
@@ -317,7 +318,7 @@ function App() {
 
         <nav className="tabs" aria-label="Secciones">
           <button className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Ahora</button>
-          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>Historial <span>{events.length}</span></button>
+          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>Historial <span>{scopedEvents.length}</span></button>
           <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}><Icon name="globe" size={14} />Mapa</button>
         </nav>
 
@@ -344,14 +345,15 @@ function App() {
 
             <section className="recent-section">
               <div className="section-title"><div className="section-heading-copy"><h3>Actividad reciente</h3><span className="section-context">{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</span></div><button onClick={() => setActiveTab('history')}>Ver todo <Icon name="chevron" size={14} /></button></div>
-              <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name="locate" size={18} /><span>No hay sismos recientes dentro de tu radio.</span></div>}</div>
+              <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
             </section>
 
             <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>Radio de monitoreo: {location.radiusKm} km</span></div><button onClick={() => { setAboutOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
           </div>
         ) : activeTab === 'history' ? (
           <div className="history-panel">
-            <div className="history-intro"><div><p>Registros disponibles</p><h2>Historial sísmico</h2></div><span>{filteredEvents.length}</span></div>
+            <div className="history-intro"><div><p>Registros de {alertScope === 'global' ? 'todo el mundo' : 'mi zona'}</p><h2>Historial sísmico</h2></div><span>{filteredEvents.length}</span></div>
+            <div className="history-scope-row"><span>Mostrar</span><div className="history-scope-toggle"><button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')}><Icon name="locate" size={13} />Mi zona</button><button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')}><Icon name="globe" size={13} />Todo el mundo</button></div></div>
             <label className="search-field"><Icon name="search" size={16} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar lugar, fuente o ID" aria-label="Buscar en el historial" />{historyQuery && <button onClick={() => setHistoryQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
             <div className="history-results">{filteredEvents.length > 0 ? filteredEvents.map((event) => <EventRow key={event.id} event={event} detailed distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="empty-state"><Icon name="search" size={21} /><strong>Sin resultados</strong><span>Prueba con otro lugar, fuente o identificador.</span></div>}</div>
           </div>
@@ -646,49 +648,92 @@ function EarthquakeMap({ event }) {
   const latitude = Number(event.latitude)
   const longitude = Number(event.longitude)
   const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180
+  const [mapState, setMapState] = useState(hasCoordinates ? 'loading' : 'unavailable')
 
   useEffect(() => {
+    setMapState(hasCoordinates ? 'loading' : 'unavailable')
     if (!hasCoordinates || !mapContainer.current) return undefined
 
-    const center = [latitude, longitude]
-    const map = L.map(mapContainer.current, {
-      attributionControl: false,
-      scrollWheelZoom: false,
-      zoomControl: false,
-      minZoom: 2,
-      maxZoom: 18,
-    }).setView(center, 7)
+    let cancelled = false
+    let map = null
+    let resizeObserver = null
+    let fallbackLayer = null
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      attribution: '© OpenStreetMap contributors',
-    }).addTo(map)
+    const initializeMap = () => {
+      if (cancelled || map || !mapContainer.current || mapContainer.current._leaflet_id) return
 
-    L.control.zoom({ position: 'topright' }).addTo(map)
+      const center = [latitude, longitude]
+      map = L.map(mapContainer.current, {
+        attributionControl: false,
+        scrollWheelZoom: false,
+        zoomControl: false,
+        minZoom: 2,
+        maxZoom: 18,
+      }).setView(center, 7)
 
-    const markerIcon = L.divIcon({
-      className: 'earthquake-marker',
-      html: '<span><i></i></span>',
-      iconSize: [34, 34],
-      iconAnchor: [17, 17],
-    })
+      let fallbackUsed = false
+      const primaryLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '© OpenStreetMap contributors',
+      })
+      const useFallbackLayer = () => {
+        if (fallbackUsed || cancelled || !map) return
+        fallbackUsed = true
+        fallbackLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap contributors, Tiles style HOT',
+        }).on('load', () => !cancelled && setMapState('ready')).on('tileerror', () => !cancelled && setMapState('error'))
+        fallbackLayer.addTo(map)
+      }
+      primaryLayer.on('load', () => !cancelled && setMapState('ready')).on('tileerror', useFallbackLayer).addTo(map)
 
-    const magnitude = Number(event.magnitude) || 1
-    L.circle(center, {
-      radius: Math.max(9000, magnitude * 11000),
-      color: '#4f9674',
-      weight: 1.5,
-      opacity: 0.75,
-      fillColor: '#8fc5a5',
-      fillOpacity: 0.18,
-      interactive: false,
-    }).addTo(map)
-    L.marker(center, { icon: markerIcon, keyboard: false }).addTo(map)
+      L.control.zoom({ position: 'topright' }).addTo(map)
 
-    const resizeTimer = window.setTimeout(() => map.invalidateSize(), 80)
+      const markerIcon = L.divIcon({
+        className: 'earthquake-marker',
+        html: '<span><i></i></span>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17],
+      })
+
+      const magnitude = Number(event.magnitude) || 1
+      L.circle(center, {
+        radius: Math.max(9000, magnitude * 11000),
+        color: '#4f9674',
+        weight: 1.5,
+        opacity: 0.75,
+        fillColor: '#8fc5a5',
+        fillOpacity: 0.18,
+        interactive: false,
+      }).addTo(map)
+      L.marker(center, { icon: markerIcon, keyboard: false }).addTo(map)
+
+      const invalidateSize = () => map?.invalidateSize({ animate: false })
+      const resizeTimer = window.setTimeout(invalidateSize, 120)
+      const secondResizeTimer = window.setTimeout(invalidateSize, 420)
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(invalidateSize)
+        resizeObserver.observe(mapContainer.current)
+      }
+
+      map.whenReady(invalidateSize)
+      map._sismiResizeTimer = resizeTimer
+      map._sismiSecondResizeTimer = secondResizeTimer
+    }
+
+    const frame = window.requestAnimationFrame(initializeMap)
+    const delayedFrame = window.setTimeout(initializeMap, 180)
     return () => {
-      window.clearTimeout(resizeTimer)
-      map.remove()
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(delayedFrame)
+      resizeObserver?.disconnect()
+      if (map) {
+        window.clearTimeout(map._sismiResizeTimer)
+        window.clearTimeout(map._sismiSecondResizeTimer)
+        if (fallbackLayer && map.hasLayer(fallbackLayer)) map.removeLayer(fallbackLayer)
+        map.remove()
+      }
     }
   }, [event.id, event.magnitude, hasCoordinates, latitude, longitude])
 
@@ -699,7 +744,10 @@ function EarthquakeMap({ event }) {
   return (
     <section className="event-map-section" aria-label="Mapa del epicentro">
       <div className="map-heading"><div><Icon name="map" size={16} /><strong>Ubicación del epicentro</strong></div><span>{latitude.toFixed(3)}, {longitude.toFixed(3)}</span></div>
-      <div className="event-map" ref={mapContainer} />
+      <div className="event-map" ref={mapContainer}>
+        {mapState === 'loading' && <div className="map-state"><Icon name="refresh" size={18} /><span>Cargando mapa…</span></div>}
+        {mapState === 'error' && <div className="map-state is-error"><Icon name="map" size={18} /><span>No se pudo cargar el mapa. Revisa tu conexión.</span></div>}
+      </div>
       <div className="map-credit">© OpenStreetMap contributors</div>
     </section>
   )

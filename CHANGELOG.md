@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.3] — 2026-08-24
+
+### Correcciones
+
+- La actividad reciente de “Ahora” respeta el alcance seleccionado y solo muestra eventos de las últimas 24 horas.
+- El historial ahora filtra correctamente entre “Mi zona” y “Todo el mundo”, con selector visible y búsqueda sobre el resultado filtrado.
+- El detalle del evento mejora la inicialización del mapa, reajusta su tamaño al abrirse y utiliza una fuente alternativa de teselas si la principal no responde.
+
 ## [0.1.2] — 2026-08-24
 
 ### Mejoras
