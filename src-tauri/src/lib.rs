@@ -16,7 +16,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![send_sismi_notification, fetch_sgc_events])
+        .invoke_handler(tauri::generate_handler![send_sismi_notification, fetch_sgc_events, fetch_usgs_events])
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
@@ -108,7 +108,7 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.19")
+        .user_agent("Sismi/0.1.20")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -124,6 +124,33 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
             .await
             .map_err(|feed_error| format!("Catálogo SGC no respondió ({catalog_error}); feed alterno tampoco: {feed_error}")),
     }
+}
+
+#[tauri::command]
+async fn fetch_usgs_events() -> Result<Vec<Value>, String> {
+    let client = Client::builder()
+        .user_agent("Sismi/0.1.20")
+        .connect_timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(6))
+        .build()
+        .map_err(|error| format!("No se pudo preparar la consulta de USGS: {error}"))?;
+    let payload = client
+        .get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson")
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| format!("No se pudo consultar USGS: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("USGS respondió con un error: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("USGS devolvió una respuesta inválida: {error}"))?;
+
+    Ok(payload
+        .get("features")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 async fn fetch_sgc_catalog_pages(client: &Client, query: &Value) -> Result<Vec<Value>, String> {

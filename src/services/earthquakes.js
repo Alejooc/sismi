@@ -1,4 +1,4 @@
-import { fetchSgcCatalog, isDesktopApp } from './desktop.js'
+import { fetchSgcCatalog, fetchUsgsFeed, isDesktopApp } from './desktop.js'
 
 const USGS_DAILY_FEED = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
 const SGC_FEED = 'https://api.sgc.gov.co/biweekly/biweekly_earthquakes'
@@ -117,6 +117,13 @@ function normalizeEvent(feature) {
 }
 
 async function fetchUsgs(signal) {
+  if (isDesktopApp()) {
+    const features = await fetchUsgsFeed(signal)
+    return features
+      .map((feature) => normalizeEvent(feature))
+      .filter((event) => event.latitude !== null && event.longitude !== null)
+  }
+
   const response = await fetch(`${USGS_DAILY_FEED}?_=${Date.now()}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`USGS respondió con ${response.status}`)
   const payload = await response.json()

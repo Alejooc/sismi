@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.20] — 2026-08-27
+
+### Conexión más estable
+
+- USGS ahora se consulta desde el canal nativo de la aplicación.
+- Una falla de la red interna del panel ya no deja a Sismi sin los registros de USGS.
+- Se mantiene EMSC para detección rápida y SGC para la información local de Colombia.
+
 ## [0.1.19] — 2026-08-27
 
 ### Detección rápida con EMSC

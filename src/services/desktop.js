@@ -13,6 +13,17 @@ export async function fetchSgcCatalog(startDate, endDate, signal) {
   return Array.isArray(events) ? events : []
 }
 
+export async function fetchUsgsFeed(signal) {
+  if (!isDesktopApp()) return null
+  if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
+
+  const { invoke } = await import('@tauri-apps/api/core')
+  const events = await invoke('fetch_usgs_events')
+
+  if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
+  return Array.isArray(events) ? events : []
+}
+
 export async function minimizeWindow() {
   if (!isDesktopApp()) return
   const { getCurrentWindow } = await import('@tauri-apps/api/window')
