@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.22] — 2026-08-27
+
+### Mapa y modo Windows
+
+- El mapa mundial agrupa sismos cercanos para evitar puntos y etiquetas amontonados.
+- Se mejoran las etiquetas de ciudades y países y se incorpora una línea de tiempo con reproducción y pausa.
+- Se añade el inicio automático con Windows, oculto en la bandeja del sistema.
+- Se añade No molestar y un aviso cuando los datos llevan varios minutos sin actualizarse.
+
 ## [0.1.21] — 2026-08-27
 
 ### Historial y detalles disponibles

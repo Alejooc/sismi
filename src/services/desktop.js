@@ -24,6 +24,19 @@ export async function fetchUsgsFeed(signal) {
   return Array.isArray(events) ? events : []
 }
 
+export async function getStartWithWindows() {
+  if (!isDesktopApp()) return false
+  const { invoke } = await import('@tauri-apps/api/core')
+  return Boolean(await invoke('get_start_with_windows'))
+}
+
+export async function setStartWithWindows(enabled) {
+  if (!isDesktopApp()) return false
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('set_start_with_windows', { enabled: Boolean(enabled) })
+  return true
+}
+
 export async function minimizeWindow() {
   if (!isDesktopApp()) return
   const { getCurrentWindow } = await import('@tauri-apps/api/window')

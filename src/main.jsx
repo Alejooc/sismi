@@ -8,11 +8,12 @@ import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
 import { subscribeEmscRealtime } from './services/emsc'
 import { searchLocations } from './services/locations'
-import { closeWindow as closeDesktopWindow, isDesktopApp, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission } from './services/desktop'
+import { closeWindow as closeDesktopWindow, getStartWithWindows, isDesktopApp, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission, setStartWithWindows as setStartWithWindowsNative } from './services/desktop'
 import { APP_VERSION, checkForSismiUpdate } from './services/updater'
 import './styles.css'
 
 const DEFAULT_LOCATION = { label: 'Bogotá, Colombia', lat: BOGOTA.lat, lon: BOGOTA.lon, radiusKm: 250 }
+const DATA_STALE_AFTER_MS = 5 * 60 * 1000
 const COUNTRY_POLYGONS = feature(countriesTopology, countriesTopology.objects.countries).features
 const CITY_LABELS = [
   { label: 'Bogotá', lat: 4.711, lon: -74.0721, type: 'city' },
@@ -39,21 +40,88 @@ const CITY_LABELS = [
   { label: 'Sídney', lat: -33.8688, lon: 151.2093, type: 'city' },
   { label: 'Auckland', lat: -36.8509, lon: 174.7645, type: 'city' },
 ]
+const COUNTRY_LABELS = [
+  { label: 'Colombia', lat: 4.6, lon: -74.1, type: 'country' },
+  { label: 'Ecuador', lat: -1.4, lon: -78.4, type: 'country' },
+  { label: 'Perú', lat: -9.2, lon: -75.0, type: 'country' },
+  { label: 'Venezuela', lat: 7.0, lon: -66.0, type: 'country' },
+  { label: 'México', lat: 23.6, lon: -102.5, type: 'country' },
+  { label: 'Brasil', lat: -10.8, lon: -52.0, type: 'country' },
+  { label: 'Chile', lat: -30.0, lon: -71.0, type: 'country' },
+  { label: 'Argentina', lat: -36.0, lon: -64.0, type: 'country' },
+  { label: 'Estados Unidos', lat: 38.0, lon: -100.0, type: 'country' },
+  { label: 'España', lat: 40.2, lon: -3.7, type: 'country' },
+  { label: 'Japón', lat: 36.2, lon: 138.3, type: 'country' },
+  { label: 'Australia', lat: -25.3, lon: 133.8, type: 'country' },
+]
 
-function getGlobeLabels(location, events = []) {
+function getGlobeLabels(location, events = [], globePoints = []) {
   const monitor = location ? { ...location, type: 'monitor' } : null
-  const magnitudeLabels = events.filter((event) => Number(event.magnitude) >= 3).map((event) => ({
-    label: event.magnitudeLabel,
+  const magnitudeLabels = events.filter((event) => Number(event.magnitude) >= 4.5).map((event) => ({
+    label: `M${event.magnitudeLabel}`,
     lat: Number(event.latitude),
     lon: Number(event.longitude),
     type: 'event',
     magnitude: Number(event.magnitude) || 0,
   })).filter((event) => Number.isFinite(event.lat) && Number.isFinite(event.lon))
-  return [monitor, ...CITY_LABELS, ...magnitudeLabels].filter(Boolean)
+  const clusterLabels = globePoints.filter((point) => point.isCluster).map((point) => ({
+    label: `${point.clusterSize}`,
+    lat: Number(point.latitude),
+    lon: Number(point.longitude),
+    type: 'cluster',
+    magnitude: Number(point.magnitude) || 0,
+  })).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+  return [monitor, ...COUNTRY_LABELS, ...CITY_LABELS, ...clusterLabels, ...magnitudeLabels].filter(Boolean)
 }
 
 function getWaveEvents(events) {
   return events.filter((event) => Number(event.magnitude) >= 3).slice(0, 24)
+}
+
+function getGlobePoints(events) {
+  const gridStep = events.length > 800 ? 1.5 : 1
+  const buckets = new Map()
+
+  events.forEach((event) => {
+    const latitude = Number(event.latitude)
+    const longitude = Number(event.longitude)
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+    const latitudeBucket = Math.floor((latitude + 90) / gridStep)
+    const longitudeBucket = Math.floor((longitude + 180) / gridStep)
+    const key = `${latitudeBucket}:${longitudeBucket}`
+    const bucket = buckets.get(key) || []
+    bucket.push(event)
+    buckets.set(key, bucket)
+  })
+
+  return [...buckets.entries()].map(([key, bucket]) => {
+    const sorted = [...bucket].sort((first, second) => (
+      Number(second.magnitude) - Number(first.magnitude) || second.timestamp - first.timestamp
+    ))
+    const representative = sorted[0]
+    return {
+      ...representative,
+      id: bucket.length > 1 ? `cluster:${key}` : representative.id,
+      isCluster: bucket.length > 1,
+      clusterSize: bucket.length,
+      clusterEvents: bucket,
+    }
+  })
+}
+
+function filterMapEvents(events, { source, minMagnitude, timeRange, query, onlyNearby, location }) {
+  const normalizedQuery = query.trim().toLowerCase()
+  const now = Date.now()
+  const rangeMs = { '24h': 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000, '30d': 30 * 24 * 60 * 60 * 1000 }[timeRange]
+
+  return events.filter((event) => {
+    if (source !== 'all' && event.source !== source) return false
+    if (Number(event.magnitude) < minMagnitude) return false
+    if (rangeMs && event.timestamp < now - rangeMs) return false
+    if (onlyNearby && !isNearby(event, location)) return false
+    if (normalizedQuery && ![event.place, event.source, event.metadata?.title, event.metadata?.agency].filter(Boolean).join(' ').toLowerCase().includes(normalizedQuery)) return false
+    return Number.isFinite(Number(event.latitude)) && Number.isFinite(Number(event.longitude))
+  })
 }
 
 function getEventKey(event) {
@@ -92,6 +160,7 @@ function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }
   const paths = {
     activity: <path d="M3 12h4l2.2-7 4.1 14L16 12h5" />,
+    alert: <><path d="M12 3 2.8 19h18.4L12 3Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>,
     back: <path d="m15 18-6-6 6-6" />,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
     check: <path d="m5 12 4 4L19 6" />,
@@ -106,12 +175,15 @@ function Icon({ name, size = 18 }) {
     map: <><path d="m9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3Z" /><path d="M9 3v15M15 6v15" /></>,
     minus: <path d="M5 12h14" />,
     moon: <path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" />,
+    pause: <><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></>,
+    play: <path d="m8 5 11 7-11 7V5Z" />,
     plus: <><path d="M12 5v14M5 12h14" /></>,
     refresh: <><path d="M20 11a8.1 8.1 0 0 0-14.9-3L3 11" /><path d="M3 5v6h6" /><path d="M4 13a8.1 8.1 0 0 0 14.9 3L21 13" /><path d="M21 19v-6h-6" /></>,
     search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></>,
     signal: <><path d="M5 20v-3" /><path d="M9.5 20v-6" /><path d="M14.5 20v-9" /><path d="M19 20V7" /></>,
     shield: <><path d="M12 3 20 6v5c0 5.1-3.3 8.7-8 10-4.7-1.3-8-4.9-8-10V6l8-3Z" /><path d="m8.5 12 2.2 2.2 4.8-4.8" /></>,
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
+    windows: <><path d="M3 5.1 10.6 4v7H3zM12.7 3.7 21 2.5V11h-8.3zM3 12.9h7.6V20L3 18.8zM12.7 12.9H21v8.6l-8.3-1.2z" /></>,
     phone: <><path d="M6.6 3.5 9 3l1.6 4-1.8 1.5a13.8 13.8 0 0 0 6.7 6.7l1.5-1.8 4 1.6-.5 2.4a2 2 0 0 1-2.2 1.6C10.6 18.1 5.9 13.4 5 5.7a2 2 0 0 1 1.6-2.2Z" /></>,
   }
   return <svg {...common}>{paths[name]}</svg>
@@ -131,10 +203,14 @@ function App() {
   const [sourceStatus, setSourceStatus] = useState('SGC + USGS + EMSC')
   const [sourceHealth, setSourceHealth] = useState(INITIAL_SOURCE_HEALTH)
   const [lastSyncAt, setLastSyncAt] = useState(null)
+  const [statusClock, setStatusClock] = useState(Date.now())
   const [theme, setTheme] = useState(() => readStoredValue('sismi-theme', 'light'))
   const [location, setLocation] = useState(() => readStoredValue('sismi-location', DEFAULT_LOCATION))
   const [locationMode, setLocationMode] = useState(() => readStoredValue('sismi-location-mode', 'search') === 'auto' ? 'auto' : 'search')
   const [locationStatus, setLocationStatus] = useState('Elige una ciudad o usa la ubicación de este equipo.')
+  const [startWithWindows, setStartWithWindows] = useState(false)
+  const [windowsPreferenceStatus, setWindowsPreferenceStatus] = useState('')
+  const [doNotDisturb, setDoNotDisturb] = useState(() => readStoredValue('sismi-do-not-disturb', false))
   const [alertScope, setAlertScope] = useState(() => readStoredValue('sismi-alert-scope', 'nearby') === 'global' ? 'global' : 'nearby')
   const [alertRules, setAlertRules] = useState(readAlertRules)
   const [historyQuery, setHistoryQuery] = useState('')
@@ -148,7 +224,9 @@ function App() {
   const [mapTimeRange, setMapTimeRange] = useState('all')
   const [mapQuery, setMapQuery] = useState('')
   const [mapOnlyNearby, setMapOnlyNearby] = useState(false)
+  const [mapTimelineAt, setMapTimelineAt] = useState(null)
   const notificationsRef = useRef(notifications)
+  const doNotDisturbRef = useRef(doNotDisturb)
   const locationRef = useRef(location)
   const alertScopeRef = useRef(alertScope)
   const activeAlertRule = alertRules[alertScope]
@@ -171,6 +249,7 @@ function App() {
   const alertedEventKeys = useRef(new Set())
   const updateRequestInFlight = useRef(false)
   const updateNoticeShown = useRef(false)
+  const staleNoticeShown = useRef(false)
   const loaderStartedAt = useRef(Date.now())
   const loaderFinished = useRef(false)
 
@@ -187,20 +266,15 @@ function App() {
     if (!query) return scopedEvents
     return scopedEvents.filter((event) => [event.place, event.source, event.id, event.metadata?.title, event.metadata?.agency].filter(Boolean).join(' ').toLowerCase().includes(query))
   }, [historyQuery, scopedEvents])
-  const filteredMapEvents = useMemo(() => {
-    const query = mapQuery.trim().toLowerCase()
-    const now = Date.now()
-    const rangeMs = { '24h': 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000, '30d': 30 * 24 * 60 * 60 * 1000 }[mapTimeRange]
-    return events.filter((event) => {
-      if (mapSource !== 'all' && event.source !== mapSource) return false
-      if (Number(event.magnitude) < mapMinMagnitude) return false
-      if (rangeMs && event.timestamp < now - rangeMs) return false
-      if (mapOnlyNearby && !isNearby(event, location)) return false
-      if (query && ![event.place, event.source, event.metadata?.title, event.metadata?.agency].filter(Boolean).join(' ').toLowerCase().includes(query)) return false
-      return Number.isFinite(Number(event.latitude)) && Number.isFinite(Number(event.longitude))
-    })
-  }, [events, location, mapMinMagnitude, mapOnlyNearby, mapQuery, mapSource, mapTimeRange])
-  const statusLabel = feedError ? 'Sin conexión' : notifications ? 'Vigilancia activa' : 'Avisos pausados'
+  const mapBaseEvents = useMemo(() => filterMapEvents(events, { source: mapSource, minMagnitude: mapMinMagnitude, timeRange: mapTimeRange, query: mapQuery, onlyNearby: mapOnlyNearby, location }), [events, location, mapMinMagnitude, mapOnlyNearby, mapQuery, mapSource, mapTimeRange])
+  const filteredMapEvents = useMemo(() => mapTimelineAt === null ? mapBaseEvents : mapBaseEvents.filter((event) => event.timestamp <= mapTimelineAt), [mapBaseEvents, mapTimelineAt])
+  const mapTimelineBounds = useMemo(() => {
+    if (mapBaseEvents.length === 0) return { min: 0, max: 0 }
+    const timestamps = mapBaseEvents.map((event) => event.timestamp)
+    return { min: Math.min(...timestamps), max: Math.max(...timestamps) }
+  }, [mapBaseEvents])
+  const dataIsStale = Boolean(lastSyncAt && statusClock - lastSyncAt >= DATA_STALE_AFTER_MS)
+  const statusLabel = feedError ? 'Sin conexión' : dataIsStale ? 'Datos atrasados' : doNotDisturb ? 'No molestar' : notifications ? 'Vigilancia activa' : 'Avisos pausados'
   const monitoringLabel = alertScope === 'global' ? 'Todo el mundo' : location.label
 
   function updateAlertRule(field, value) {
@@ -208,6 +282,11 @@ function App() {
   }
 
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
+  useEffect(() => { doNotDisturbRef.current = doNotDisturb; writeStoredValue('sismi-do-not-disturb', doNotDisturb) }, [doNotDisturb])
+  useEffect(() => {
+    const interval = window.setInterval(() => setStatusClock(Date.now()), 30000)
+    return () => window.clearInterval(interval)
+  }, [])
   useEffect(() => { locationRef.current = location; writeStoredValue('sismi-location', location) }, [location])
   useEffect(() => {
     const nextLocationKey = [location.lat, location.lon].map((value) => Number(value).toFixed(5)).join(':')
@@ -238,6 +317,28 @@ function App() {
     writeStoredValue('sismi-alert-rules', alertRules)
   }, [activeAlertRule, alertRules, alertScope])
   useEffect(() => { document.documentElement.dataset.theme = theme; writeStoredValue('sismi-theme', theme) }, [theme])
+  useEffect(() => {
+    if (!isDesktopApp()) return undefined
+    let active = true
+    getStartWithWindows()
+      .then((enabled) => { if (active) setStartWithWindows(enabled) })
+      .catch(() => { if (active) setWindowsPreferenceStatus('No pudimos comprobar el inicio automático.') })
+    return () => { active = false }
+  }, [])
+  useEffect(() => {
+    if (mapTimelineAt === null || mapTimelineBounds.max === 0) return
+    if (mapTimelineAt < mapTimelineBounds.min) setMapTimelineAt(mapTimelineBounds.min)
+    if (mapTimelineAt > mapTimelineBounds.max) setMapTimelineAt(mapTimelineBounds.max)
+  }, [mapTimelineAt, mapTimelineBounds])
+  useEffect(() => {
+    if (!dataIsStale) {
+      staleNoticeShown.current = false
+      return
+    }
+    if (staleNoticeShown.current || doNotDisturb || !notifications) return
+    staleNoticeShown.current = true
+    notifyDesktop({ title: 'Sismi · Datos atrasados', body: 'No recibimos eventos nuevos en varios minutos. Revisa tu conexión.', tag: 'sismi-data-stale', sound: false }).catch(() => {})
+  }, [dataIsStale, doNotDisturb, notifications])
   useEffect(() => {
     if (isDesktopApp()) document.documentElement.classList.add('native-window')
     return () => document.documentElement.classList.remove('native-window')
@@ -354,6 +455,23 @@ function App() {
     setNotifications((current) => !current)
   }
 
+  function toggleDoNotDisturb() {
+    setDoNotDisturb((current) => !current)
+  }
+
+  async function toggleStartWithWindows() {
+    const nextValue = !startWithWindows
+    setStartWithWindows(nextValue)
+    setWindowsPreferenceStatus(nextValue ? 'Guardando preferencia…' : 'Desactivando inicio automático…')
+    try {
+      await setStartWithWindowsNative(nextValue)
+      setWindowsPreferenceStatus(nextValue ? 'Sismi iniciará oculto en la bandeja de Windows.' : 'Inicio automático desactivado.')
+    } catch {
+      setStartWithWindows(!nextValue)
+      setWindowsPreferenceStatus('No pudimos cambiar esta preferencia.')
+    }
+  }
+
   async function testNotification() {
     setTestNotificationStatus('Solicitando permiso…')
     const permissionGranted = await requestNotificationPermission()
@@ -398,6 +516,7 @@ function App() {
   }
 
   async function announceAlerts(candidateEvents, center, threshold, scope, source) {
+    if (doNotDisturbRef.current) return
     if (quietHoursEnabledRef.current && isQuietHoursNow(quietHoursStartRef.current, quietHoursEndRef.current)) return
 
     const eligibleEvents = candidateEvents.filter((event) => (
@@ -459,11 +578,12 @@ function App() {
         </header>
 
         <div className="monitor-bar">
-          <div className="monitor-state"><span className={`status-dot ${feedError || !notifications ? 'is-paused' : 'is-live'}`} /><strong>{statusLabel}</strong><span>· {monitoringLabel}</span></div>
+          <div className="monitor-state"><span className={`status-dot ${feedError || !notifications ? 'is-paused' : dataIsStale ? 'is-stale' : 'is-live'}`} /><strong>{statusLabel}</strong><span>· {monitoringLabel}</span></div>
           <button className={`refresh-button ${refreshing ? 'is-refreshing' : ''}`} onClick={() => loadFeed()} aria-label="Actualizar datos"><Icon name="refresh" size={14} /><span>{lastChecked}</span></button>
         </div>
 
         {feedError && <div className="feed-alert" role="status">{feedError}. Mostrando los últimos registros.</div>}
+        {dataIsStale && !feedError && <div className="feed-alert stale-data-alert" role="status">No hay datos nuevos desde {formatSyncTime(lastSyncAt)}. Revisa la conexión o pulsa Actualizar.</div>}
         {(updateState.status === 'available' || updateState.status === 'downloading') && !updateNoticeDismissed && <UpdateBanner version={updateState.version} downloading={updateState.status === 'downloading'} percent={updateState.percent} onInstall={() => checkForAppUpdate({ install: true })} onDismiss={() => setUpdateNoticeDismissed(true)} />}
         {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} onSafety={() => { setActiveAlert(null); setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }} />}
 
@@ -509,10 +629,10 @@ function App() {
             <div className="history-results">{filteredEvents.length > 0 ? filteredEvents.map((event) => <EventRow key={event.id} event={event} detailed distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="empty-state"><Icon name="search" size={21} /><strong>No encontramos sismos</strong><span>Intenta buscar otro lugar o fuente.</span></div>}</div>
           </div>
         ) : (
-          <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={setMapSource} minMagnitude={mapMinMagnitude} setMinMagnitude={setMapMinMagnitude} timeRange={mapTimeRange} setTimeRange={setMapTimeRange} query={mapQuery} setQuery={setMapQuery} onlyNearby={mapOnlyNearby} setOnlyNearby={setMapOnlyNearby} onSelect={setSelectedEvent} />
+          <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={(value) => { setMapSource(value); setMapTimelineAt(null) }} minMagnitude={mapMinMagnitude} setMinMagnitude={(value) => { setMapMinMagnitude(value); setMapTimelineAt(null) }} timeRange={mapTimeRange} setTimeRange={(value) => { setMapTimeRange(value); setMapTimelineAt(null) }} query={mapQuery} setQuery={(value) => { setMapQuery(value); setMapTimelineAt(null) }} onlyNearby={mapOnlyNearby} setOnlyNearby={(value) => { setMapOnlyNearby(value); setMapTimelineAt(null) }} timelineEvents={mapBaseEvents} timelineAt={mapTimelineAt} setTimelineAt={setMapTimelineAt} timelineMin={mapTimelineBounds.min} timelineMax={mapTimelineBounds.max} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude: activeAlertRule.minMagnitude, setMinMagnitude: (value) => updateAlertRule('minMagnitude', value), alertScope, setAlertScope, alertSource: activeAlertRule.source, setAlertSource: (value) => updateAlertRule('source', value), quietHoursEnabled: activeAlertRule.quietHoursEnabled, setQuietHoursEnabled: (value) => updateAlertRule('quietHoursEnabled', value), quietHoursStart: activeAlertRule.quietHoursStart, setQuietHoursStart: (value) => updateAlertRule('quietHoursStart', value), quietHoursEnd: activeAlertRule.quietHoursEnd, setQuietHoursEnd: (value) => updateAlertRule('quietHoursEnd', value), alertSound: activeAlertRule.sound, setAlertSound: (value) => updateAlertRule('sound', value), maxAlertsPerUpdate: activeAlertRule.maxAlertsPerUpdate, setMaxAlertsPerUpdate: (value) => updateAlertRule('maxAlertsPerUpdate', value), notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false) }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude: activeAlertRule.minMagnitude, setMinMagnitude: (value) => updateAlertRule('minMagnitude', value), alertScope, setAlertScope, alertSource: activeAlertRule.source, setAlertSource: (value) => updateAlertRule('source', value), quietHoursEnabled: activeAlertRule.quietHoursEnabled, setQuietHoursEnabled: (value) => updateAlertRule('quietHoursEnabled', value), quietHoursStart: activeAlertRule.quietHoursStart, setQuietHoursStart: (value) => updateAlertRule('quietHoursStart', value), quietHoursEnd: activeAlertRule.quietHoursEnd, setQuietHoursEnd: (value) => updateAlertRule('quietHoursEnd', value), alertSound: activeAlertRule.sound, setAlertSound: (value) => updateAlertRule('sound', value), maxAlertsPerUpdate: activeAlertRule.maxAlertsPerUpdate, setMaxAlertsPerUpdate: (value) => updateAlertRule('maxAlertsPerUpdate', value), notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false), startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
 
         <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
@@ -529,7 +649,7 @@ function EarthquakeAlert({ event, onClose, onSafety }) {
   return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p><button className="alert-safety-link" onClick={onSafety}><Icon name="shield" size={13} />Qué hacer ahora</button></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, alertSource, setAlertSource, quietHoursEnabled, setQuietHoursEnabled, quietHoursStart, setQuietHoursStart, quietHoursEnd, setQuietHoursEnd, alertSound, setAlertSound, maxAlertsPerUpdate, setMaxAlertsPerUpdate, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close }) {
+function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, alertSource, setAlertSource, quietHoursEnabled, setQuietHoursEnabled, quietHoursStart, setQuietHoursStart, quietHoursEnd, setQuietHoursEnd, alertSound, setAlertSound, maxAlertsPerUpdate, setMaxAlertsPerUpdate, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close, startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
       <header className="drawer-heading"><div><button className="back-button" onClick={safetyOpen ? () => setSafetyOpen(false) : aboutOpen ? () => setAboutOpen(false) : close} aria-label={safetyOpen || aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{safetyOpen ? 'Modo seguridad' : aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{safetyOpen ? 'Guía disponible sin conexión' : aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
@@ -572,6 +692,13 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
         <section className="settings-section appearance-section">
           <div className="section-heading"><span className="section-icon"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></span><div><strong>Apariencia</strong><span>{theme === 'dark' ? 'Modo oscuro activo' : 'Modo claro activo'}</span></div></div>
           <button className="theme-choice" onClick={toggleTheme}><span>{theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}</span><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
+        </section>
+        <section className="settings-section windows-section">
+          <div className="section-heading"><span className="section-icon"><Icon name="windows" size={16} /></span><div><strong>Modo Windows</strong><span>Controla cómo funciona Sismi en tu equipo</span></div></div>
+          <div className="setting-row windows-setting-row"><div><strong>Iniciar con Windows</strong><span>Se abrirá oculto y quedará en la bandeja</span></div><button className={`toggle ${startWithWindows ? 'on' : ''}`} onClick={toggleStartWithWindows} aria-label="Activar o desactivar inicio con Windows" aria-pressed={startWithWindows}><span /></button></div>
+          <div className="setting-row"><div><strong>No molestar</strong><span>Detiene sonidos y avisos mientras esté activo</span></div><button className={`toggle ${doNotDisturb ? 'on' : ''}`} onClick={toggleDoNotDisturb} aria-label="Activar o desactivar No molestar" aria-pressed={doNotDisturb}><span /></button></div>
+          <div className={`data-freshness ${dataIsStale ? 'is-stale' : ''}`}><span className="data-freshness-icon"><Icon name={dataIsStale ? 'alert' : lastSyncAt ? 'check' : 'refresh'} size={15} /></span><div><strong>{dataIsStale ? 'Datos atrasados' : lastSyncAt ? 'Datos al día' : 'Esperando datos'}</strong><span>{dataIsStale ? 'La aplicación lleva varios minutos sin recibir eventos nuevos.' : lastSyncAt ? `Última consulta: ${formatSyncTime(lastSyncAt)}` : 'Aún no hay una sincronización confirmada.'}</span></div></div>
+          {windowsPreferenceStatus && <p className="setting-note windows-preference-status" role="status">{windowsPreferenceStatus}</p>}
         </section>
         <section className="settings-section about-entry-section">
           <button className="about-entry" onClick={() => setAboutOpen(true)}><span className="about-entry-icon"><Icon name="info" size={17} /></span><span><strong>Acerca de Sismi</strong><small>Conoce Sismi y sus funciones</small></span><Icon name="chevron" size={16} /></button>
@@ -759,7 +886,40 @@ function EventRow({ event, detailed = false, distanceKm, onSelect }) {
   return <div className={`event-row ${detailed ? 'detailed' : ''}`} role="button" tabIndex="0" onClick={() => onSelect(event)} onKeyDown={handleKeyDown}><div className={`event-marker ${event.tone}`}><strong>{event.magnitudeLabel}</strong></div><div className="row-copy"><strong>{event.place}</strong><span>{event.depth} · {event.source}{Number.isFinite(distanceKm) ? ` · ${distanceKm} km` : ''}</span></div><div className="row-time"><strong>{event.time}</strong><span>{event.magnitudeType}</span></div><Icon name="chevron" size={15} /></div>
 }
 
-function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, onSelect }) {
+function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, timelineEvents, timelineAt, setTimelineAt, timelineMin, timelineMax, onSelect }) {
+  const [timelinePlaying, setTimelinePlaying] = useState(false)
+  const hasTimeline = timelineMax > timelineMin
+  const timelineValue = timelineAt === null ? timelineMax : timelineAt
+
+  useEffect(() => {
+    if (!timelinePlaying || !hasTimeline) return undefined
+    const step = Math.max(60 * 1000, Math.round((timelineMax - timelineMin) / 72))
+    const interval = window.setInterval(() => {
+      setTimelineAt((current) => {
+        const currentValue = Number.isFinite(current) ? current : timelineMin
+        const nextValue = Math.min(timelineMax, currentValue + step)
+        if (nextValue >= timelineMax) window.setTimeout(() => setTimelinePlaying(false), 0)
+        return nextValue
+      })
+    }, 160)
+    return () => window.clearInterval(interval)
+  }, [hasTimeline, setTimelineAt, timelineMax, timelineMin, timelinePlaying])
+
+  function toggleTimeline() {
+    if (!hasTimeline) return
+    if (timelinePlaying) {
+      setTimelinePlaying(false)
+      return
+    }
+    if (timelineAt === null || timelineAt >= timelineMax) setTimelineAt(timelineMin)
+    setTimelinePlaying(true)
+  }
+
+  function clearTimeline() {
+    setTimelinePlaying(false)
+    setTimelineAt(null)
+  }
+
   return (
     <div className="map-panel">
       <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="globe" size={18} /></span><div><h2>Sismos en el mundo</h2><p>Consulta eventos por zona y fecha</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
@@ -776,9 +936,14 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
           <button className={`map-nearby-toggle ${onlyNearby ? 'selected' : ''}`} onClick={() => setOnlyNearby((current) => !current)} aria-pressed={onlyNearby}><Icon name="locate" size={14} />Mi zona</button>
         </div>
       </div>
-      <div className="map-status"><span><i />{events.length ? 'Sismos mostrados' : 'No hay sismos con estos filtros'}</span><small>Mueve el mapa · acerca la vista · toca un punto para ver sus datos</small></div>
+      <div className="map-timeline">
+        <div className="map-timeline-heading"><span><Icon name="activity" size={13} />Línea de tiempo</span><strong>{timelineAt === null ? 'Todos los eventos' : formatTimelineMoment(timelineAt)}</strong></div>
+        <div className="map-timeline-controls"><button className="timeline-play" onClick={toggleTimeline} disabled={!hasTimeline} aria-label={timelinePlaying ? 'Pausar línea de tiempo' : 'Reproducir línea de tiempo'}><Icon name={timelinePlaying ? 'pause' : 'play'} size={12} /></button><input type="range" min={timelineMin || 0} max={timelineMax || 1} value={timelineValue || 0} disabled={!hasTimeline} onChange={(event) => { setTimelinePlaying(false); setTimelineAt(Number(event.target.value)) }} aria-label="Recorrer la línea de tiempo" /><button className="timeline-all" onClick={clearTimeline} disabled={timelineAt === null}>Todo</button></div>
+        <div className="map-timeline-scale"><span>{timelineMin ? formatTimelineMoment(timelineMin) : 'Sin fecha'}</span><span>{timelineMax ? formatTimelineMoment(timelineMax) : 'Sin fecha'}</span></div>
+      </div>
+      <div className="map-status"><span><i />{events.length ? `${events.length} sismos visibles` : 'No hay sismos con estos filtros'}</span><small>{timelineAt === null ? 'Mueve el mapa · acerca la vista · toca un punto para ver sus datos' : `${timelineEvents.length} en el periodo · desliza para recorrerlos`}</small></div>
       <WorldEarthquakeGlobe events={events} location={location} onSelect={onSelect} />
-      <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Color = magnitud · números = M3+ · etiquetas = ciudades</small></div>
+      <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Los grupos muestran cuántos eventos hay en una zona</small></div>
       <div className="globe-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
@@ -789,6 +954,7 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
   const globeRef = useRef(null)
   const onSelectRef = useRef(onSelect)
   const locationRef = useRef(location)
+  const eventsRef = useRef(events)
 
   useEffect(() => { onSelectRef.current = onSelect }, [onSelect])
   useEffect(() => { locationRef.current = location }, [location])
@@ -796,6 +962,7 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
   useEffect(() => {
     if (!globeContainer.current) return undefined
 
+    const initialPoints = getGlobePoints(events)
     const globe = Globe()(globeContainer.current)
       .backgroundColor('rgba(0,0,0,0)')
       .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
@@ -806,12 +973,13 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
       .atmosphereAltitude(0.07)
       .pointLat('latitude')
       .pointLng('longitude')
-      .pointColor((event) => Number(event.magnitude) >= 4.5 ? '#d6eadb' : Number(event.magnitude) >= 3 ? '#a9cfb5' : '#83b69a')
-      .pointRadius((event) => Math.max(0.012, Math.min(0.026, 0.010 + (Number(event.magnitude) || 0) * 0.003)))
-      .pointAltitude(0.002)
+      .pointColor((event) => event.isCluster ? '#c3dfcb' : Number(event.magnitude) >= 4.5 ? '#d6eadb' : Number(event.magnitude) >= 3 ? '#a9cfb5' : '#83b69a')
+      .pointRadius((event) => event.isCluster ? Math.min(0.034, 0.016 + Math.log2(event.clusterSize) * 0.004) : Math.max(0.009, Math.min(0.018, 0.008 + (Number(event.magnitude) || 0) * 0.002)))
+      .pointAltitude((event) => event.isCluster ? 0.006 : 0.002)
       .pointResolution(8)
       .pointsMerge(false)
-      .pointLabel((event) => `${event.place} · M${event.magnitudeLabel} · ${event.source}`)
+      .pointLabel((event) => event.isCluster ? `${event.clusterSize} sismos en esta zona · evento mayor M${event.magnitudeLabel}` : `${event.place} · M${event.magnitudeLabel} · ${event.source}`)
+      .pointsData(initialPoints)
       .ringsData(getWaveEvents(events))
       .ringLat('latitude')
       .ringLng('longitude')
@@ -827,16 +995,16 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
       .polygonStrokeColor(() => 'rgba(176, 216, 188, 0.28)')
       .polygonAltitude(0.002)
       .polygonsTransitionDuration(0)
-      .labelsData(getGlobeLabels(location, events))
+      .labelsData(getGlobeLabels(location, events, initialPoints))
       .labelLat('lat')
       .labelLng('lon')
       .labelText((place) => place.label)
-      .labelColor((place) => place.type === 'event' ? (place.magnitude >= 4.5 ? '#d6eadb' : '#83b69a') : place.type === 'monitor' ? '#b9dfc4' : 'rgba(222, 239, 226, 0.68)')
-      .labelSize((place) => place.type === 'event' ? 0.07 : place.type === 'monitor' ? 0.14 : 0.09)
-      .labelDotRadius((place) => place.type === 'event' ? 0 : place.type === 'monitor' ? 0.08 : 0.04)
-      .labelAltitude((place) => place.type === 'event' ? 0.008 : place.type === 'monitor' ? 0.025 : 0.014)
+      .labelColor((place) => place.type === 'event' ? (place.magnitude >= 4.5 ? '#d6eadb' : '#83b69a') : place.type === 'cluster' ? '#c3dfcb' : place.type === 'monitor' ? '#b9dfc4' : 'rgba(222, 239, 226, 0.68)')
+      .labelSize((place) => place.type === 'event' ? 0.07 : place.type === 'cluster' ? 0.075 : place.type === 'monitor' ? 0.14 : 0.09)
+      .labelDotRadius((place) => place.type === 'event' ? 0 : place.type === 'cluster' ? 0 : place.type === 'monitor' ? 0.08 : 0.04)
+      .labelAltitude((place) => place.type === 'event' ? 0.008 : place.type === 'cluster' ? 0.012 : place.type === 'monitor' ? 0.025 : 0.014)
       .labelResolution(2)
-      .onPointClick((event) => onSelectRef.current(event))
+      .onPointClick((event) => onSelectRef.current(event.isCluster ? event.clusterEvents[0] : event))
 
     globe.width(globeContainer.current.clientWidth).height(globeContainer.current.clientHeight)
     const controls = globe.controls()
@@ -850,8 +1018,17 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
     globe.globeMaterial().transparent = true
     globe.globeMaterial().opacity = 0.92
     globeRef.current = globe
+    eventsRef.current = events
+
+    const handleControlsChange = () => {
+      const nextPoints = getGlobePoints(eventsRef.current)
+      globe.pointsData(nextPoints)
+      globe.labelsData(getGlobeLabels(locationRef.current, eventsRef.current, nextPoints))
+    }
+    controls.addEventListener('change', handleControlsChange)
 
     return () => {
+      controls.removeEventListener('change', handleControlsChange)
       globe.pauseAnimation()
       globe.renderer().dispose()
       if (globeContainer.current) globeContainer.current.replaceChildren()
@@ -861,15 +1038,18 @@ function WorldEarthquakeGlobe({ events, location, onSelect }) {
 
   useEffect(() => {
     if (globeRef.current) {
-      globeRef.current.pointsData(events)
+      eventsRef.current = events
+      const nextPoints = getGlobePoints(events)
+      globeRef.current.pointsData(nextPoints)
       globeRef.current.ringsData(getWaveEvents(events))
-      globeRef.current.labelsData(getGlobeLabels(locationRef.current, events))
+      globeRef.current.labelsData(getGlobeLabels(locationRef.current, events, nextPoints))
     }
   }, [events])
 
   useEffect(() => {
-    if (globeRef.current) globeRef.current.labelsData(getGlobeLabels(location, events))
-  }, [events, location])
+    locationRef.current = location
+    if (globeRef.current) globeRef.current.labelsData(getGlobeLabels(location, eventsRef.current, getGlobePoints(eventsRef.current)))
+  }, [location])
 
   function focusLocation() {
     const globe = globeRef.current
@@ -1055,6 +1235,7 @@ function isQuietHoursNow(start, end) {
 }
 function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatSyncTime(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
+function formatTimelineMoment(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatDetectionLag(event) {
   if (!Number.isFinite(event?.detectedAt) || !Number.isFinite(event?.timestamp)) return ''
   const minutes = Math.max(0, Math.round((event.detectedAt - event.timestamp) / 60000))

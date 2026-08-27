@@ -16,7 +16,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![send_sismi_notification, fetch_sgc_events, fetch_usgs_events])
+        .invoke_handler(tauri::generate_handler![send_sismi_notification, fetch_sgc_events, fetch_usgs_events, get_start_with_windows, set_start_with_windows])
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
@@ -25,7 +25,11 @@ pub fn run() {
             let window = app
                 .get_webview_window("main")
                 .expect("No se encontró la ventana principal de Sismi");
+            let start_hidden = std::env::args().any(|argument| argument == "--minimized");
             position_bottom_right(&window)?;
+            if !start_hidden {
+                show_window(&window);
+            }
 
             let open_item = MenuItem::with_id(app, "open", "Abrir Sismi", true, None::<&str>)?;
             let hide_item = MenuItem::with_id(app, "hide", "Ocultar", true, None::<&str>)?;
@@ -108,7 +112,7 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 #[allow(non_snake_case)]
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.21")
+        .user_agent("Sismi/0.1.22")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -129,7 +133,7 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
 #[tauri::command]
 async fn fetch_usgs_events() -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.21")
+        .user_agent("Sismi/0.1.22")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -151,6 +155,57 @@ async fn fetch_usgs_events() -> Result<Vec<Value>, String> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())
+}
+
+#[tauri::command]
+fn get_start_with_windows() -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use windows_registry::CURRENT_USER;
+
+        let key = match CURRENT_USER.open("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            Ok(key) => key,
+            Err(_) => return Ok(false),
+        };
+        let configured_command = match key.get_string("Sismi") {
+            Ok(command) => command,
+            Err(_) => return Ok(false),
+        };
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("No se pudo localizar Sismi: {error}"))?
+            .to_string_lossy()
+            .to_string();
+
+        return Ok(configured_command.contains(&executable));
+    }
+
+    #[cfg(not(windows))]
+    Ok(false)
+}
+
+#[tauri::command]
+fn set_start_with_windows(enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows_registry::CURRENT_USER;
+
+        let key = CURRENT_USER
+            .create("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|error| format!("Windows no permitió cambiar el inicio automático: {error}"))?;
+
+        if enabled {
+            let executable = std::env::current_exe()
+                .map_err(|error| format!("No se pudo localizar Sismi: {error}"))?;
+            let command = format!("\"{}\" --minimized", executable.to_string_lossy());
+            key.set_string("Sismi", command)
+                .map_err(|error| format!("Windows no permitió activar el inicio automático: {error}"))?;
+        } else if let Err(error) = key.remove_value("Sismi") {
+            let _ = error;
+        }
+    }
+
+    let _ = enabled;
+    Ok(())
 }
 
 async fn fetch_sgc_catalog_pages(client: &Client, query: &Value) -> Result<Vec<Value>, String> {
