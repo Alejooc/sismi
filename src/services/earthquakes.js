@@ -26,13 +26,13 @@ export async function fetchEarthquakes(signal, onSourceStatus) {
   return dedupeEvents(availableFeeds.flatMap((result) => result.value))
 }
 
-async function fetchWithTimeout(fetcher, parentSignal) {
+async function fetchWithTimeout(fetcher, parentSignal, timeoutMs = SOURCE_TIMEOUT_MS) {
   const controller = new AbortController()
   let timedOut = false
   const timeoutId = setTimeout(() => {
     timedOut = true
     controller.abort()
-  }, SOURCE_TIMEOUT_MS)
+  }, timeoutMs)
   const abortFromParent = () => controller.abort()
 
   if (parentSignal?.aborted) controller.abort()
@@ -41,7 +41,7 @@ async function fetchWithTimeout(fetcher, parentSignal) {
   try {
     return await fetcher(controller.signal)
   } catch (error) {
-    if (timedOut) throw new Error(`La fuente tardó más de ${SOURCE_TIMEOUT_MS / 1000} segundos en responder`)
+    if (timedOut) throw new Error(`La fuente tardó más de ${timeoutMs / 1000} segundos en responder`)
     throw error
   } finally {
     clearTimeout(timeoutId)
@@ -118,12 +118,21 @@ function normalizeEvent(feature) {
 
 async function fetchUsgs(signal) {
   if (isDesktopApp()) {
-    const features = await fetchUsgsFeed(signal)
-    return features
-      .map((feature) => normalizeEvent(feature))
-      .filter((event) => event.latitude !== null && event.longitude !== null)
+    try {
+      return await fetchWithTimeout(fetchUsgsBrowser, signal, 6000)
+    } catch (browserError) {
+      if (signal?.aborted) throw browserError
+      const features = await fetchUsgsFeed(signal)
+      return features
+        .map((feature) => normalizeEvent(feature))
+        .filter((event) => event.latitude !== null && event.longitude !== null)
+    }
   }
 
+  return fetchUsgsBrowser(signal)
+}
+
+async function fetchUsgsBrowser(signal) {
   const response = await fetch(`${USGS_DAILY_FEED}?_=${Date.now()}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`USGS respondió con ${response.status}`)
   const payload = await response.json()
@@ -139,10 +148,19 @@ async function fetchSgc(signal) {
   startDate.setDate(startDate.getDate() - 7)
 
   if (isDesktopApp()) {
-    const catalogEvents = await fetchSgcCatalog(toDateParam(startDate), toDateParam(endDate), signal)
-    return catalogEvents
-      .map((feature) => feature.geometry ? normalizeSgcEvent(feature) : normalizeSgcCatalogEvent(feature))
-      .filter((event) => event.latitude !== null && event.longitude !== null)
+    try {
+      const catalogEvents = await fetchSgcCatalog(toDateParam(startDate), toDateParam(endDate), signal)
+      return catalogEvents
+        .map((feature) => feature.geometry ? normalizeSgcEvent(feature) : normalizeSgcCatalogEvent(feature))
+        .filter((event) => event.latitude !== null && event.longitude !== null)
+    } catch (nativeError) {
+      if (signal?.aborted) throw nativeError
+      try {
+        return await fetchSgcBiweekly(startDate, endDate, signal)
+      } catch (browserError) {
+        throw new Error(`SGC no respondió por ninguna ruta: ${nativeError.message || 'consulta nativa'}; ${browserError.message || 'feed web'}`)
+      }
+    }
   }
 
   if (import.meta.env?.DEV) {

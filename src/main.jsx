@@ -312,7 +312,11 @@ function App() {
       setFeedError(null)
       setLastChecked(formatClock(detectedAt))
     } catch (error) {
-      if (error.name !== 'AbortError') { setFeedError('No pudimos traer información nueva'); setLastChecked('sin actualizar') }
+      if (error.name !== 'AbortError') {
+        console.error('Sismi no pudo actualizar los eventos', error)
+        setFeedError('No pudimos traer información nueva')
+        setLastChecked('sin actualizar')
+      }
     } finally {
       feedRequestInFlight.current = false
       setRefreshing(false)
@@ -1024,7 +1028,7 @@ function isEquivalentEarthquake(first, second) {
   if (!Number.isFinite(first.timestamp) || !Number.isFinite(second.timestamp)) return false
   if (Math.abs(first.timestamp - second.timestamp) > 5 * 60 * 1000) return false
   if (![first.latitude, first.longitude, second.latitude, second.longitude].every(Number.isFinite)) return false
-  if (haversineKm(first.latitude, first.longitude, second.latitude, second.longitude) > 60) return false
+  if (distanceBetween({ lat: first.latitude, lon: first.longitude }, second) > 60) return false
   return Math.abs(Number(first.magnitude) - Number(second.magnitude)) <= 0.8
 }
 

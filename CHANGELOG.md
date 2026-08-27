@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.21] — 2026-08-27
+
+### Historial y detalles disponibles
+
+- Se corrige el error que impedía mostrar los registros recibidos en el historial y en la información completa del sismo.
+- Se conservan rutas alternativas para consultar SGC y USGS cuando una conexión no responde.
+
 ## [0.1.20] — 2026-08-27
 
 ### Conexión más estable
