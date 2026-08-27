@@ -6,6 +6,7 @@ import { feature } from 'topojson-client'
 import countriesTopology from 'world-atlas/countries-110m.json'
 import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
+import { subscribeEmscRealtime } from './services/emsc'
 import { searchLocations } from './services/locations'
 import { closeWindow as closeDesktopWindow, isDesktopApp, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission } from './services/desktop'
 import { APP_VERSION, checkForSismiUpdate } from './services/updater'
@@ -74,6 +75,7 @@ const initialEvents = [
 const INITIAL_SOURCE_HEALTH = {
   SGC: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
   USGS: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
+  EMSC: { status: 'pending', count: 0, error: null, checkedAt: null, lastOkAt: null },
 }
 
 const DEFAULT_EMERGENCY_CONTACTS = [
@@ -83,7 +85,7 @@ const DEFAULT_EMERGENCY_CONTACTS = [
 ]
 
 const ALERT_SOUND_OPTIONS = ['intense', 'brief', 'silent']
-const ALERT_SOURCE_OPTIONS = ['all', 'SGC', 'USGS']
+const ALERT_SOURCE_OPTIONS = ['all', 'SGC', 'USGS', 'EMSC']
 const DEFAULT_ALERT_RULE = { minMagnitude: 3, source: 'all', quietHoursEnabled: false, quietHoursStart: '22:00', quietHoursEnd: '07:00', sound: 'intense', maxAlertsPerUpdate: 3 }
 
 function Icon({ name, size = 18 }) {
@@ -126,7 +128,7 @@ function App() {
   const [lastChecked, setLastChecked] = useState('iniciando…')
   const [events, setEvents] = useState(initialEvents)
   const [feedError, setFeedError] = useState(null)
-  const [sourceStatus, setSourceStatus] = useState('SGC + USGS')
+  const [sourceStatus, setSourceStatus] = useState('SGC + USGS + EMSC')
   const [sourceHealth, setSourceHealth] = useState(INITIAL_SOURCE_HEALTH)
   const [lastSyncAt, setLastSyncAt] = useState(null)
   const [theme, setTheme] = useState(() => readStoredValue('sismi-theme', 'light'))
@@ -162,6 +164,9 @@ function App() {
   const hasLoadedFeed = useRef(false)
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
+  const realtimeEventsRef = useRef(new Map())
+  const knownEventsRef = useRef([...initialEvents])
+  const emscConnectedRef = useRef(false)
   const previousLocationKey = useRef(null)
   const alertedEventKeys = useRef(new Set())
   const updateRequestInFlight = useRef(false)
@@ -248,32 +253,58 @@ function App() {
     const interval = window.setInterval(() => loadFeed(), 30000)
     return () => { controller.abort(); window.clearInterval(interval) }
   }, [])
+  useEffect(() => subscribeEmscRealtime({
+    onStatus: ({ status, error }) => {
+      const checkedAt = Date.now()
+      const connected = status === 'connected'
+      emscConnectedRef.current = connected
+      setSourceHealth((current) => ({
+        ...current,
+        EMSC: {
+          ...current.EMSC,
+          status: connected ? 'ok' : status === 'connecting' ? 'pending' : 'error',
+          count: realtimeEventsRef.current.size,
+          error: error || null,
+          checkedAt,
+          lastOkAt: connected ? checkedAt : current.EMSC?.lastOkAt || null,
+        },
+      }))
+    },
+    onEvent: handleEmscEvent,
+  }), [])
 
   async function loadFeed(signal) {
     if (feedRequestInFlight.current) return
     feedRequestInFlight.current = true
     setRefreshing(true)
     try {
-      const freshEvents = await fetchEarthquakes(signal, (status) => {
+      const freshEventsFromSources = await fetchEarthquakes(signal, (status) => {
         const checkedAt = Date.now()
-        setSourceHealth((current) => Object.fromEntries(Object.entries(status).map(([source, next]) => [source, {
-          ...current[source],
-          ...next,
-          checkedAt,
-          lastOkAt: next.status === 'ok' ? checkedAt : current[source]?.lastOkAt || null,
-        }])))
+        setSourceHealth((current) => ({
+          ...current,
+          ...Object.fromEntries(Object.entries(status).map(([source, next]) => [source, {
+            ...current[source],
+            ...next,
+            checkedAt,
+            lastOkAt: next.status === 'ok' ? checkedAt : current[source]?.lastOkAt || null,
+          }])),
+        }))
       })
+      const freshEvents = mergeEarthquakeEvents([...freshEventsFromSources, ...realtimeEventsRef.current.values()])
       const detectedAt = Date.now()
       const alertCutoff = lastSuccessfulFeedAt.current - 15 * 60 * 1000
       const newEvents = hasLoadedFeed.current
-        ? freshEvents.filter((event) => !knownEventIds.current.has(getEventKey(event)) && event.timestamp >= alertCutoff)
+        ? freshEvents.filter((event) => !isKnownEarthquake(event, knownEventsRef.current) && event.timestamp >= alertCutoff)
         : []
       newEvents.forEach((event) => detectedAtByKey.current.set(getEventKey(event), detectedAt))
       const eventsWithDetection = freshEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
       const newlyDetectedEvents = newEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
       setEvents(eventsWithDetection)
-      setSourceStatus([...new Set(freshEvents.map((event) => event.source))].join(' + '))
+      const activeSources = [...new Set(freshEvents.map((event) => event.source))]
+      if (emscConnectedRef.current && !activeSources.includes('EMSC')) activeSources.push('EMSC')
+      setSourceStatus(activeSources.join(' + '))
       freshEvents.forEach((event) => knownEventIds.current.add(getEventKey(event)))
+      knownEventsRef.current = mergeEarthquakeEvents([...knownEventsRef.current, ...freshEvents])
       hasLoadedFeed.current = true
       lastSuccessfulFeedAt.current = Date.now()
       setLastSyncAt(detectedAt)
@@ -290,6 +321,24 @@ function App() {
         const remaining = Math.max(0, 1100 - (Date.now() - loaderStartedAt.current))
         window.setTimeout(() => setBooting(false), remaining)
       }
+    }
+  }
+
+  function handleEmscEvent(event) {
+    realtimeEventsRef.current.set(event.id, event)
+    const alreadyKnown = isKnownEarthquake(event, knownEventsRef.current)
+    knownEventsRef.current = mergeEarthquakeEvents([...knownEventsRef.current, event])
+    setSourceHealth((current) => ({
+      ...current,
+      EMSC: { ...current.EMSC, count: realtimeEventsRef.current.size, status: 'ok', error: null, checkedAt: Date.now() },
+    }))
+    setEvents((current) => mergeEarthquakeEvents([...current, event]))
+
+    if (!alreadyKnown && hasLoadedFeed.current) {
+      const detectedAt = Date.now()
+      detectedAtByKey.current.set(getEventKey(event), detectedAt)
+      setLastChecked(formatClock(detectedAt))
+      if (notificationsRef.current) announceAlerts([{ ...event, detectedAt }], locationRef.current, minMagnitudeRef.current, alertScopeRef.current, alertSourceRef.current)
     }
   }
 
@@ -504,7 +553,7 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           </div>
           <p className="setting-note">Estas preferencias se guardan por separado para Mi zona y Todo el mundo.</p>
           <label className="range-field"><span><span>Magnitud mínima</span><strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="1" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
-          <label className="select-field"><span>Fuente de los avisos</span><select value={alertSource} onChange={(event) => setAlertSource(event.target.value)} aria-label="Fuente de los avisos"><option value="all">SGC y USGS</option><option value="SGC">Solo SGC</option><option value="USGS">Solo USGS</option></select></label>
+          <label className="select-field"><span>Fuente de los avisos</span><select value={alertSource} onChange={(event) => setAlertSource(event.target.value)} aria-label="Fuente de los avisos"><option value="all">SGC, USGS y EMSC</option><option value="SGC">Solo SGC</option><option value="USGS">Solo USGS</option><option value="EMSC">Solo EMSC</option></select></label>
           <label className="select-field"><span>Máximo de avisos por actualización</span><select value={maxAlertsPerUpdate} onChange={(event) => setMaxAlertsPerUpdate(Number(event.target.value))} aria-label="Máximo de avisos por actualización">{[1, 3, 5, 10].map((value) => <option key={value} value={value}>{value} {value === 1 ? 'aviso' : 'avisos'}</option>)}</select></label>
           <div className="setting-row"><div><strong>Sonido de alerta</strong><span>Elige cómo quieres escucharla</span></div><select className="inline-select" value={alertSound} onChange={(event) => setAlertSound(event.target.value)} aria-label="Sonido de alerta"><option value="intense">Alerta intensa</option><option value="brief">Aviso corto</option><option value="silent">Solo aviso visual</option></select></div>
           <div className="setting-row quiet-setting-row"><div><strong>Horario silencioso</strong><span>Silencia avisos y sonidos durante este horario</span></div><button className={`toggle ${quietHoursEnabled ? 'on' : ''}`} onClick={() => setQuietHoursEnabled((current) => !current)} aria-label="Activar o desactivar horario silencioso" aria-pressed={quietHoursEnabled}><span /></button></div>
@@ -529,12 +578,12 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
 }
 
 function DataStatusSection({ sourceHealth, lastSyncAt, refreshing, onRefresh }) {
-  const sources = [['SGC', 'Servicio Geológico Colombiano'], ['USGS', 'Servicio Geológico de Estados Unidos']]
+  const sources = [['SGC', 'Servicio Geológico Colombiano'], ['USGS', 'Servicio Geológico de Estados Unidos'], ['EMSC', 'Detección sísmica internacional']]
   return <section className="settings-section data-status-section">
     <div className="section-heading"><span className="section-icon"><Icon name="signal" size={16} /></span><div><strong>Estado de datos</strong><span>Consulta de fuentes oficiales</span></div></div>
     <div className="data-status-summary"><div><span>Última sincronización</span><strong>{lastSyncAt ? formatSyncTime(lastSyncAt) : 'Aún no disponible'}</strong></div><button className="mini-refresh-button" onClick={onRefresh} disabled={refreshing}><Icon name="refresh" size={13} />{refreshing ? 'Actualizando…' : 'Actualizar'}</button></div>
     <div className="source-status-list">{sources.map(([source, label]) => <SourceStatusRow key={source} source={source} label={label} health={sourceHealth[source]} />)}</div>
-    <p className="setting-note">Sismi combina ambas fuentes y elimina coincidencias para evitar registros repetidos.</p>
+    <p className="setting-note">Sismi combina las fuentes y elimina coincidencias. EMSC se usa para detección rápida.</p>
   </section>
 }
 
@@ -714,7 +763,7 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
         <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca un lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
         <div className="map-tool-row">
           <div className="map-source-filter" role="group" aria-label="Filtrar por fuente">
-            {['all', 'USGS', 'SGC'].map((value) => <button key={value} className={source === value ? 'selected' : ''} onClick={() => setSource(value)}>{value === 'all' ? 'Todas' : value}</button>)}
+            {['all', 'USGS', 'SGC', 'EMSC'].map((value) => <button key={value} className={source === value ? 'selected' : ''} onClick={() => setSource(value)}>{value === 'all' ? 'Todas' : value}</button>)}
           </div>
           <select className="map-time-filter" value={timeRange} onChange={(event) => setTimeRange(event.target.value)} aria-label="Periodo visible"><option value="all">Todo lo disponible</option><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 días</option><option value="30d">Últimos 30 días</option></select>
         </div>
@@ -949,6 +998,40 @@ function EventDetails({ event, distanceKm, onClose }) {
   const metadata = event.metadata || {}
   const items = [['Identificador', metadata.eventId || event.id], ['Fuente y red', `${metadata.agency || event.source} · ${event.source}`], ['Red sísmica', metadata.networkCode || '—'], ['Estado', metadata.status || '—'], ['Hora del evento', metadata.localTime || event.timeLabel], ['Aviso recibido', event.detectedAt ? `${formatClock(event.detectedAt)}${formatDetectionLag(event)}` : '—'], ['Hora UTC', metadata.utcTime || '—'], ['Última actualización', metadata.updated || '—'], ['Coordenadas', `${formatValue(event.latitude)}, ${formatValue(event.longitude)}`], ['Distancia', Number.isFinite(distanceKm) ? `${distanceKm} km` : '—'], ['Magnitud', `${event.magnitudeLabel} ${event.magnitudeType}`], ['Profundidad', event.depth], ['Personas que lo sintieron', metadata.felt ?? '—'], ['Intensidad reportada (CDI / MMI)', `${metadata.cdi ?? '—'} / ${metadata.mmi ?? '—'}`], ['Nivel de alerta', metadata.alert || '—'], ['Estaciones de medición', metadata.nst ?? '—'], ['RMS', metadata.rms ?? '—'], ['Separación de estaciones', metadata.gap ? `${metadata.gap}°` : '—'], ['Distancia mínima a estación', metadata.dmin ?? '—'], ['Importancia del evento', metadata.significance ?? '—'], ['Tsunami', metadata.tsunami === null || metadata.tsunami === undefined ? '—' : metadata.tsunami ? 'Sí' : 'No'], ['Poblaciones cercanas', metadata.closestTowns || '—'], ['Código del evento', metadata.eventCode || '—'], ['Tipo de evento', metadata.eventTypes || '—']]
   return <div className="details-overlay" role="presentation" onClick={onClose}><section className="details-sheet" role="dialog" aria-modal="true" aria-label="Información completa del sismo" onClick={(eventClick) => eventClick.stopPropagation()}><header className="details-header"><div><p>Información del sismo</p><h2>{event.place}</h2></div><button className="icon-button" onClick={onClose} aria-label="Cerrar detalles"><Icon name="close" size={17} /></button></header><div className="details-hero"><strong>{event.magnitudeLabel}</strong><div><span>{event.magnitudeType} · {event.source}</span><small>{event.timeLabel}</small></div></div><EarthquakeMap event={event} /><div className="details-grid">{items.map(([label, value]) => <div className="detail-item" key={label}><span>{label}</span><strong>{formatValue(value)}</strong></div>)}</div><p className="source-note">Información tomada de fuentes oficiales y mostrada dentro de Sismi.</p></section></div>
+}
+
+function mergeEarthquakeEvents(events) {
+  const merged = []
+  for (const event of events) {
+    const duplicateIndex = merged.findIndex((existing) => isEquivalentEarthquake(existing, event))
+    if (duplicateIndex === -1) {
+      merged.push(event)
+      continue
+    }
+    merged[duplicateIndex] = preferredEarthquake(merged[duplicateIndex], event)
+  }
+  return merged.sort((a, b) => b.timestamp - a.timestamp)
+}
+
+function isKnownEarthquake(event, knownEvents) {
+  return knownEvents.some((knownEvent) => isEquivalentEarthquake(knownEvent, event))
+}
+
+function isEquivalentEarthquake(first, second) {
+  if (!first || !second) return false
+  if (first.source === second.source && first.id && second.id) return first.id === second.id
+  if (first.source === second.source) return false
+  if (!Number.isFinite(first.timestamp) || !Number.isFinite(second.timestamp)) return false
+  if (Math.abs(first.timestamp - second.timestamp) > 5 * 60 * 1000) return false
+  if (![first.latitude, first.longitude, second.latitude, second.longitude].every(Number.isFinite)) return false
+  if (haversineKm(first.latitude, first.longitude, second.latitude, second.longitude) > 60) return false
+  return Math.abs(Number(first.magnitude) - Number(second.magnitude)) <= 0.8
+}
+
+function preferredEarthquake(first, second) {
+  if (first.source === second.source) return second
+  const priority = { SGC: 3, USGS: 2, EMSC: 1 }
+  return (priority[second.source] || 0) > (priority[first.source] || 0) ? second : first
 }
 
 function isNearby(event, center) { const distanceKm = distanceBetween(center, event); return Number.isFinite(distanceKm) && distanceKm <= center.radiusKm }

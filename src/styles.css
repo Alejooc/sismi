@@ -150,7 +150,7 @@ html.native-window, html.native-window body { background: var(--panel); }
 .map-search input::placeholder { color: var(--faint); }
 .map-search button { width: 23px; height: 23px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--faint); cursor: pointer; }
 .map-tool-row, .map-control-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.map-source-filter { min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); flex: 1; gap: 3px; padding: 3px; border-radius: 8px; background: var(--panel); }
+.map-source-filter { min-width: 0; display: grid; grid-template-columns: repeat(4, 1fr); flex: 1; gap: 3px; padding: 3px; border-radius: 8px; background: var(--panel); }
 .map-source-filter button { height: 27px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 9px; font-weight: 700; cursor: pointer; }
 .map-source-filter button.selected { background: var(--primary-soft); color: var(--primary); }
 .map-time-filter { width: 130px; height: 33px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; outline: 0; background: var(--panel); color: var(--text); font-size: 9px; }

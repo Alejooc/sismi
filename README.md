@@ -21,6 +21,7 @@ Sismi es una aplicación de escritorio pequeña y discreta para consultar activi
 - Elegir alertas para **Mi zona** o **Todo el mundo**.
 - Configurar una ubicación buscando una ciudad o usando la ubicación del dispositivo.
 - Recibir una alerta visual, sonora y una notificación nativa de Windows.
+- Recibir detecciones preliminares de EMSC en tiempo real y confirmaciones de SGC/USGS.
 - Usar modo claro u oscuro.
 
 ## Descargar en Windows
@@ -74,6 +75,7 @@ Sismi consulta y combina datos públicos de:
 
 - [Servicio Geológico Colombiano](https://www.sgc.gov.co/)
 - [USGS Earthquake Hazards Program](https://earthquake.usgs.gov/)
+- [EMSC-CSEM](https://www.emsc-csem.org/), mediante su canal de eventos en tiempo real
 - [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) para buscar ciudades y ubicaciones
 
 Las fuentes pueden publicar un mismo evento con tiempos, magnitudes o identificadores distintos. Sismi intenta combinar registros equivalentes y evita repetir alertas antiguas.
@@ -87,7 +89,7 @@ Las fuentes pueden publicar un mismo evento con tiempos, magnitudes o identifica
 
 ## Estado del proyecto
 
-La versión pública actual es `v0.1.18`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
+La versión pública actual es `v0.1.19`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
 
 ## Licencia
 

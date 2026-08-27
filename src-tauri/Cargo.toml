@@ -1,6 +1,6 @@
 [package]
 name = "sismi"
-version = "0.1.18"
+version = "0.1.19"
 description = "Panel flotante de monitoreo sísmico"
 authors = ["Sismi"]
 edition = "2021"

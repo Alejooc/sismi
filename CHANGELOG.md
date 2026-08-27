@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.19] — 2026-08-27
+
+### Detección rápida con EMSC
+
+- Se añade una conexión en tiempo real con EMSC para recibir eventos preliminares con menor demora.
+- La conexión se recupera automáticamente si se interrumpe.
+- EMSC aparece como fuente seleccionable en alertas, estado de datos y mapa.
+- Los eventos equivalentes de EMSC, SGC y USGS se combinan para evitar avisos repetidos.
+
 ## [0.1.18] — 2026-08-24
 
 ### Registros recientes del SGC
