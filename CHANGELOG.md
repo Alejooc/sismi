@@ -1,5 +1,26 @@
 # Historial de versiones
 
+## [0.1.25] — 2026-09-17
+
+### Una versión más completa y práctica
+
+- Centro de alertas con historial persistente, hora de detección, fuente, ubicación y motivo del aviso.
+- Resumen de las últimas 24 horas con total de eventos, magnitud máxima y distancia del evento más cercano.
+- Estado independiente para SGC, USGS y EMSC, con hora de consulta, registros recibidos y aviso de datos sin conexión.
+- Copia local de los últimos registros para consultar la aplicación aunque una fuente todavía no responda.
+- Ubicaciones guardadas para cambiar rápidamente entre lugares como casa, trabajo o una zona de interés.
+- Tamaño de texto configurable para mejorar la lectura en pantallas pequeñas.
+- Exportación del historial a CSV y opción de imprimirlo o guardarlo como PDF desde Windows.
+- Nuevos accesos directos en el menú de la bandeja: abrir Resumen, actualizar datos y activar o pausar avisos.
+- Mapa más limpio con filtros y línea de tiempo plegables, grupos de eventos y navegación integrada al detalle.
+
+### Correcciones y ajustes
+
+- Se conserva la última información útil cuando una actualización no puede completar todas las consultas.
+- Se evita mostrar alertas repetidas y se registra cada aviso para facilitar la revisión.
+- Se ajustan los textos, tamaños, estados y acciones para una experiencia más clara para clientes finales.
+- La publicación incluye el instalador de Windows y los archivos firmados necesarios para las actualizaciones automáticas.
+
 ## [0.1.24] — 2026-09-17
 
 ### Grupos de sismos

@@ -17,7 +17,7 @@ Sismi es una aplicación de escritorio pequeña y discreta para consultar activi
 
 - Ver los eventos más recientes en un panel flotante junto a la bandeja de Windows.
 - Consultar el historial sísmico y buscar por lugar, fuente o identificador.
-- Explorar un globo terráqueo interactivo con países, ciudades, magnitudes y ondas suaves.
+- Explorar un mapa mundial interactivo con países, ciudades, magnitudes y grupos de eventos.
 - Elegir alertas para **Mi zona** o **Todo el mundo**.
 - Configurar una ubicación buscando una ciudad o usando la ubicación del dispositivo.
 - Recibir una alerta visual, sonora y una notificación nativa de Windows.
@@ -89,7 +89,7 @@ Las fuentes pueden publicar un mismo evento con tiempos, magnitudes o identifica
 
 ## Estado del proyecto
 
-La versión pública actual es `v0.1.24`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
+La versión pública actual es `v0.1.25`. Consulta el [historial de cambios](CHANGELOG.md) para ver lo incluido en cada versión y la [guía de Windows](docs/DESCARGAR-WINDOWS.md) para obtener ayuda.
 
 ## Licencia
 
