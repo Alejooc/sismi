@@ -5,7 +5,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, WindowEvent,
+    Emitter, Manager, PhysicalPosition, WindowEvent,
 };
 
 #[cfg(windows)]
@@ -32,10 +32,13 @@ pub fn run() {
             }
 
             let open_item = MenuItem::with_id(app, "open", "Abrir Sismi", true, None::<&str>)?;
+            let summary_item = MenuItem::with_id(app, "summary", "Abrir Resumen", true, None::<&str>)?;
+            let refresh_item = MenuItem::with_id(app, "refresh", "Actualizar datos", true, None::<&str>)?;
+            let toggle_alerts_item = MenuItem::with_id(app, "toggle-alerts", "Activar / pausar avisos", true, None::<&str>)?;
             let hide_item = MenuItem::with_id(app, "hide", "Ocultar", true, None::<&str>)?;
             let separator = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", "Salir de Sismi", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_item, &hide_item, &separator, &quit_item])?;
+            let menu = Menu::with_items(app, &[&open_item, &summary_item, &refresh_item, &toggle_alerts_item, &separator, &hide_item, &quit_item])?;
 
             let tray_window = window.clone();
             let tray_icon = tauri::include_image!("./icons/32x32.png");
@@ -48,6 +51,9 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     if event.id() == "open" {
                         show_main_window(app);
+                    } else if event.id() == "summary" || event.id() == "refresh" || event.id() == "toggle-alerts" {
+                        show_main_window(app);
+                        let _ = app.emit("tray-action", event.id().as_ref());
                     } else if event.id() == "hide" {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.hide();

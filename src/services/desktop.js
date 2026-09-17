@@ -49,6 +49,12 @@ export async function closeWindow() {
   await getCurrentWindow().hide()
 }
 
+export async function listenTrayAction(handler) {
+  if (!isDesktopApp()) return () => {}
+  const { listen } = await import('@tauri-apps/api/event')
+  return listen('tray-action', (event) => handler(event.payload))
+}
+
 export async function requestNotificationPermission() {
   // El aviso nativo registra su propia identidad de Windows al enviarse.
   // El plugin de permisos no reconoce correctamente el ejecutable portable.

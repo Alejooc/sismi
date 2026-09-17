@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
 import { subscribeEmscRealtime } from './services/emsc'
 import { searchLocations } from './services/locations'
-import { closeWindow as closeDesktopWindow, getStartWithWindows, isDesktopApp, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission, setStartWithWindows as setStartWithWindowsNative } from './services/desktop'
+import { closeWindow as closeDesktopWindow, getStartWithWindows, isDesktopApp, listenTrayAction, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission, setStartWithWindows as setStartWithWindowsNative } from './services/desktop'
 import { APP_VERSION, checkForSismiUpdate } from './services/updater'
 import './styles.css'
 
@@ -133,14 +133,24 @@ function App() {
   const [safetyOpen, setSafetyOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastChecked, setLastChecked] = useState('iniciando…')
-  const [events, setEvents] = useState(initialEvents)
+  const [events, setEvents] = useState(() => {
+    const cached = readStoredValue('sismi-events-cache', null)
+    return Array.isArray(cached) && cached.length > 0 ? cached : initialEvents
+  })
+  const [usingCachedData, setUsingCachedData] = useState(() => {
+    const cached = readStoredValue('sismi-events-cache', null)
+    return Array.isArray(cached) && cached.length > 0
+  })
   const [feedError, setFeedError] = useState(null)
   const [sourceStatus, setSourceStatus] = useState('SGC + USGS + EMSC')
   const [sourceHealth, setSourceHealth] = useState(INITIAL_SOURCE_HEALTH)
-  const [lastSyncAt, setLastSyncAt] = useState(null)
+  const [lastSyncAt, setLastSyncAt] = useState(() => readStoredValue('sismi-events-cache-at', null))
   const [statusClock, setStatusClock] = useState(Date.now())
   const [theme, setTheme] = useState(() => readStoredValue('sismi-theme', 'light'))
+  const [textSize, setTextSize] = useState(() => normalizeTextSize(readStoredValue('sismi-text-size', 'normal')))
   const [location, setLocation] = useState(() => readStoredValue('sismi-location', DEFAULT_LOCATION))
+  const [savedLocations, setSavedLocations] = useState(() => readSavedLocations(readStoredValue('sismi-location', DEFAULT_LOCATION)))
+  const [locationNameDraft, setLocationNameDraft] = useState('')
   const [locationMode, setLocationMode] = useState(() => readStoredValue('sismi-location-mode', 'search') === 'auto' ? 'auto' : 'search')
   const [locationStatus, setLocationStatus] = useState('Elige una ciudad o usa la ubicación de este equipo.')
   const [startWithWindows, setStartWithWindows] = useState(false)
@@ -149,6 +159,7 @@ function App() {
   const [alertScope, setAlertScope] = useState(() => readStoredValue('sismi-alert-scope', 'nearby') === 'global' ? 'global' : 'nearby')
   const [alertRules, setAlertRules] = useState(readAlertRules)
   const [historyQuery, setHistoryQuery] = useState('')
+  const [printHistoryOpen, setPrintHistoryOpen] = useState(false)
   const [alertHistory, setAlertHistory] = useState(readAlertHistory)
   const [alertHistoryExpanded, setAlertHistoryExpanded] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState(null)
@@ -174,13 +185,13 @@ function App() {
   const quietHoursEndRef = useRef(activeAlertRule.quietHoursEnd)
   const alertSoundRef = useRef(activeAlertRule.sound)
   const maxAlertsPerUpdateRef = useRef(activeAlertRule.maxAlertsPerUpdate)
-  const knownEventIds = useRef(new Set(initialEvents.map((event) => getEventKey(event))))
+  const knownEventIds = useRef(new Set(events.map((event) => getEventKey(event))))
   const detectedAtByKey = useRef(new Map())
   const hasLoadedFeed = useRef(false)
   const lastSuccessfulFeedAt = useRef(0)
   const feedRequestInFlight = useRef(false)
   const realtimeEventsRef = useRef(new Map())
-  const knownEventsRef = useRef([...initialEvents])
+  const knownEventsRef = useRef([...events])
   const emscConnectedRef = useRef(false)
   const previousLocationKey = useRef(null)
   const alertedEventKeys = useRef(new Set())
@@ -189,6 +200,7 @@ function App() {
   const staleNoticeShown = useRef(false)
   const loaderStartedAt = useRef(Date.now())
   const loaderFinished = useRef(false)
+  const hasCacheRef = useRef(usingCachedData)
 
   const last24Hours = Date.now() - 24 * 60 * 60 * 1000
   const nearbyEvents = useMemo(() => events.filter((event) => event.timestamp >= last24Hours && isNearby(event, location)), [events, location, last24Hours])
@@ -198,6 +210,8 @@ function App() {
   const latest = latestNearby || events[0] || initialEvents[0]
   const nearbyCount = countNearby(events, location)
   const latestDistance = distanceBetween(location, latest)
+  const dailyMaxEvent = useMemo(() => scopedRecentEvents.reduce((current, event) => (!current || Number(event.magnitude) > Number(current.magnitude) ? event : current), null), [scopedRecentEvents])
+  const dailySourceCount = useMemo(() => new Set(scopedRecentEvents.map((event) => event.source).filter(Boolean)).size, [scopedRecentEvents])
   const filteredEvents = useMemo(() => {
     const query = historyQuery.trim().toLowerCase()
     if (!query) return scopedEvents
@@ -219,6 +233,8 @@ function App() {
   }
 
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
+  useEffect(() => { writeStoredValue('sismi-saved-locations', savedLocations) }, [savedLocations])
+  useEffect(() => { document.documentElement.dataset.textSize = textSize; writeStoredValue('sismi-text-size', textSize) }, [textSize])
   useEffect(() => { writeStoredValue('sismi-alert-history', alertHistory) }, [alertHistory])
   useEffect(() => { doNotDisturbRef.current = doNotDisturb; writeStoredValue('sismi-do-not-disturb', doNotDisturb) }, [doNotDisturb])
   useEffect(() => {
@@ -255,6 +271,21 @@ function App() {
     writeStoredValue('sismi-alert-rules', alertRules)
   }, [activeAlertRule, alertRules, alertScope])
   useEffect(() => { document.documentElement.dataset.theme = theme; writeStoredValue('sismi-theme', theme) }, [theme])
+  useEffect(() => {
+    let unlisten
+    listenTrayAction((action) => {
+      if (action === 'summary') {
+        setActiveTab('live')
+        setSelectedEvent(null)
+        setSettingsOpen(false)
+        setSafetyOpen(false)
+        setAboutOpen(false)
+      }
+      if (action === 'refresh') loadFeed()
+      if (action === 'toggle-alerts') toggleNotifications()
+    }).then((cleanup) => { unlisten = cleanup }).catch(() => {})
+    return () => { if (unlisten) unlisten() }
+  }, [])
   useEffect(() => {
     if (!isDesktopApp()) return undefined
     let active = true
@@ -347,6 +378,10 @@ function App() {
       const eventsWithDetection = freshEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
       const newlyDetectedEvents = newEvents.map((event) => ({ ...event, detectedAt: detectedAtByKey.current.get(getEventKey(event)) }))
       setEvents(eventsWithDetection)
+      setUsingCachedData(false)
+      hasCacheRef.current = true
+      writeStoredValue('sismi-events-cache', freshEvents.slice(0, 1200))
+      writeStoredValue('sismi-events-cache-at', detectedAt)
       const activeSources = [...new Set(freshEvents.map((event) => event.source))]
       if (emscConnectedRef.current && !activeSources.includes('EMSC')) activeSources.push('EMSC')
       setSourceStatus(activeSources.join(' + '))
@@ -361,7 +396,8 @@ function App() {
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Sismi no pudo actualizar los eventos', error)
-        setFeedError('No pudimos traer información nueva')
+        setUsingCachedData(hasCacheRef.current)
+        setFeedError(events.length > 0 ? 'Sin conexión. Mostrando los últimos datos guardados.' : 'No pudimos traer información nueva.')
         setLastChecked('sin actualizar')
       }
     } finally {
@@ -527,6 +563,35 @@ function App() {
   }
 
   function updateRadius(value) { setLocation((current) => ({ ...current, radiusKm: Number(value) })) }
+  function selectSavedLocation(savedLocation) {
+    const nextLocation = { ...savedLocation, label: savedLocation.label || savedLocation.name }
+    setLocation(nextLocation)
+    setLocationMode('search')
+    setLocationStatus(`Avisos configurados para ${nextLocation.label}.`)
+  }
+  function saveCurrentLocation() {
+    const name = locationNameDraft.trim() || location.label
+    const locationKey = `${Number(location.lat).toFixed(5)}:${Number(location.lon).toFixed(5)}`
+    setSavedLocations((current) => {
+      const withoutDuplicate = current.filter((item) => item.id !== locationKey)
+      return [{ ...location, id: locationKey, name }, ...withoutDuplicate].slice(0, 6)
+    })
+    setLocationNameDraft('')
+    setLocationStatus(`Ubicación guardada como ${name}.`)
+  }
+  function removeSavedLocation(locationId) {
+    setSavedLocations((current) => current.filter((item) => item.id !== locationId))
+  }
+  function exportHistoryCsv() {
+    downloadTextFile(`sismi-historial-${new Date().toISOString().slice(0, 10)}.csv`, buildEarthquakeCsv(filteredEvents), 'text/csv;charset=utf-8')
+  }
+  function exportHistoryPdf() {
+    setPrintHistoryOpen(true)
+    window.setTimeout(() => {
+      window.print()
+      window.setTimeout(() => setPrintHistoryOpen(false), 500)
+    }, 120)
+  }
   function toggleTheme() { setTheme((current) => current === 'dark' ? 'light' : 'dark') }
 
   return (
@@ -552,7 +617,7 @@ function App() {
           <button className={`refresh-button ${refreshing ? 'is-refreshing' : ''}`} onClick={() => loadFeed()} aria-label="Actualizar datos"><Icon name="refresh" size={14} /><span>{lastChecked}</span></button>
         </div>
 
-        {feedError && <div className="feed-alert" role="status">{feedError}. Mostrando los últimos registros.</div>}
+        {feedError && <div className="feed-alert" role="status">{feedError}</div>}
         {dataIsStale && !feedError && <div className="feed-alert stale-data-alert" role="status">No hay datos nuevos desde {formatSyncTime(lastSyncAt)}. Revisa la conexión o pulsa Actualizar.</div>}
         {(updateState.status === 'available' || updateState.status === 'downloading') && !updateNoticeDismissed && <UpdateBanner version={updateState.version} downloading={updateState.status === 'downloading'} percent={updateState.percent} onInstall={() => checkForAppUpdate({ install: true })} onDismiss={() => setUpdateNoticeDismissed(true)} />}
         {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} onSafety={() => { setActiveAlert(null); setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }} />}
@@ -584,6 +649,8 @@ function App() {
               <div className="quick-stat"><span>{alertScope === 'global' ? 'Cobertura de alertas' : 'Radio activo'}</span><strong>{alertScope === 'global' ? 'Mundial' : `${location.radiusKm} km`}</strong><small>{alertScope === 'global' ? `Magnitud mínima ${Number(activeAlertRule.minMagnitude).toFixed(1)}` : location.label}</small></div>
             </div>
 
+            <DailySummary count={scopedRecentEvents.length} maxEvent={dailyMaxEvent} sourceCount={dailySourceCount} scope={alertScope} />
+
             <section className="recent-section">
               <div className="section-title"><div className="section-heading-copy"><h3>Actividad reciente</h3><span className="section-context">{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</span></div><button onClick={() => setActiveTab('history')}>Ver todo <Icon name="chevron" size={14} /></button></div>
               <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
@@ -598,14 +665,16 @@ function App() {
             <div className="history-intro"><div><p>Registros de {alertScope === 'global' ? 'todo el mundo' : 'mi zona'}</p><h2>Historial sísmico</h2></div><span>{filteredEvents.length}</span></div>
             <div className="history-scope-row"><span>Mostrar</span><div className="history-scope-toggle"><button className={alertScope === 'nearby' ? 'selected' : ''} onClick={() => setAlertScope('nearby')}><Icon name="locate" size={13} />Mi zona</button><button className={alertScope === 'global' ? 'selected' : ''} onClick={() => setAlertScope('global')}><Icon name="globe" size={13} />Todo el mundo</button></div></div>
             <label className="search-field"><Icon name="search" size={16} /><input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Busca por lugar o fuente" aria-label="Buscar en el historial" />{historyQuery && <button onClick={() => setHistoryQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
+            <div className="history-export-row"><span>Guardar resultados</span><div><button onClick={exportHistoryCsv} disabled={filteredEvents.length === 0}><Icon name="download" size={13} />CSV</button><button onClick={exportHistoryPdf} disabled={filteredEvents.length === 0}><Icon name="download" size={13} />PDF</button></div></div>
             <div className="history-results">{filteredEvents.length > 0 ? filteredEvents.map((event) => <EventRow key={event.id} event={event} detailed distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="empty-state"><Icon name="search" size={21} /><strong>No encontramos sismos</strong><span>Intenta buscar otro lugar o fuente.</span></div>}</div>
           </div>
         ) : (
           <GlobalMapPanel events={filteredMapEvents} totalEvents={events.length} location={location} source={mapSource} setSource={(value) => { setMapSource(value); setMapTimelineAt(null) }} minMagnitude={mapMinMagnitude} setMinMagnitude={(value) => { setMapMinMagnitude(value); setMapTimelineAt(null) }} timeRange={mapTimeRange} setTimeRange={(value) => { setMapTimeRange(value); setMapTimelineAt(null) }} query={mapQuery} setQuery={(value) => { setMapQuery(value); setMapTimelineAt(null) }} onlyNearby={mapOnlyNearby} setOnlyNearby={(value) => { setMapOnlyNearby(value); setMapTimelineAt(null) }} timelineEvents={mapBaseEvents} timelineAt={mapTimelineAt} setTimelineAt={setMapTimelineAt} timelineMin={mapTimelineBounds.min} timelineMax={mapTimelineBounds.max} onSelect={setSelectedEvent} />
         ))}
 
-        {settingsOpen && <SettingsDrawer {...{ location, locationMode, setLocationMode, locationStatus, minMagnitude: activeAlertRule.minMagnitude, setMinMagnitude: (value) => updateAlertRule('minMagnitude', value), alertScope, setAlertScope, alertSource: activeAlertRule.source, setAlertSource: (value) => updateAlertRule('source', value), quietHoursEnabled: activeAlertRule.quietHoursEnabled, setQuietHoursEnabled: (value) => updateAlertRule('quietHoursEnabled', value), quietHoursStart: activeAlertRule.quietHoursStart, setQuietHoursStart: (value) => updateAlertRule('quietHoursStart', value), quietHoursEnd: activeAlertRule.quietHoursEnd, setQuietHoursEnd: (value) => updateAlertRule('quietHoursEnd', value), alertSound: activeAlertRule.sound, setAlertSound: (value) => updateAlertRule('sound', value), maxAlertsPerUpdate: activeAlertRule.maxAlertsPerUpdate, setMaxAlertsPerUpdate: (value) => updateAlertRule('maxAlertsPerUpdate', value), notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false), startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale }} />}
+        {settingsOpen && <SettingsDrawer {...{ location, savedLocations, locationNameDraft, setLocationNameDraft, selectSavedLocation, saveCurrentLocation, removeSavedLocation, locationMode, setLocationMode, locationStatus, minMagnitude: activeAlertRule.minMagnitude, setMinMagnitude: (value) => updateAlertRule('minMagnitude', value), alertScope, setAlertScope, alertSource: activeAlertRule.source, setAlertSource: (value) => updateAlertRule('source', value), quietHoursEnabled: activeAlertRule.quietHoursEnabled, setQuietHoursEnabled: (value) => updateAlertRule('quietHoursEnabled', value), quietHoursStart: activeAlertRule.quietHoursStart, setQuietHoursStart: (value) => updateAlertRule('quietHoursStart', value), quietHoursEnd: activeAlertRule.quietHoursEnd, setQuietHoursEnd: (value) => updateAlertRule('quietHoursEnd', value), alertSound: activeAlertRule.sound, setAlertSound: (value) => updateAlertRule('sound', value), maxAlertsPerUpdate: activeAlertRule.maxAlertsPerUpdate, setMaxAlertsPerUpdate: (value) => updateAlertRule('maxAlertsPerUpdate', value), notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, textSize, setTextSize, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow: () => loadFeed(), safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close: () => setSettingsOpen(false), startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale, usingCachedData }} />}
         {selectedEvent && <EventDetails event={selectedEvent} distanceKm={distanceBetween(location, selectedEvent)} onClose={() => setSelectedEvent(null)} />}
+        {printHistoryOpen && <PrintableHistory events={filteredEvents} location={location} scope={alertScope} />}
 
         <footer className="panel-footer"><span><Icon name="signal" size={14} /> {sourceStatus || 'Fuentes'} activas</span><span>v{APP_VERSION}</span></footer>
       </section>
@@ -621,7 +690,7 @@ function EarthquakeAlert({ event, onClose, onSafety }) {
   return <div className="earthquake-alert" role="alert"><span className="earthquake-alert-icon"><Icon name="bell" size={18} /></span><div><small>{event.isTest ? 'AVISO DE PRUEBA' : 'ALERTA DE SISMO'}</small><strong>Magnitud {event.magnitudeLabel} · {event.place}</strong><p>{event.depth} · {event.source}{event.detectedAt ? ` · Recibido ${formatClock(event.detectedAt)}` : ''}</p><button className="alert-safety-link" onClick={onSafety}><Icon name="shield" size={13} />Qué hacer ahora</button></div><button onClick={onClose} aria-label="Cerrar alerta"><Icon name="close" size={15} /></button></div>
 }
 
-function SettingsDrawer({ location, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, alertSource, setAlertSource, quietHoursEnabled, setQuietHoursEnabled, quietHoursStart, setQuietHoursStart, quietHoursEnd, setQuietHoursEnd, alertSound, setAlertSound, maxAlertsPerUpdate, setMaxAlertsPerUpdate, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close, startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale }) {
+function SettingsDrawer({ location, savedLocations, locationNameDraft, setLocationNameDraft, selectSavedLocation, saveCurrentLocation, removeSavedLocation, locationMode, setLocationMode, locationStatus, minMagnitude, setMinMagnitude, alertScope, setAlertScope, alertSource, setAlertSource, quietHoursEnabled, setQuietHoursEnabled, quietHoursStart, setQuietHoursStart, quietHoursEnd, setQuietHoursEnd, alertSound, setAlertSound, maxAlertsPerUpdate, setMaxAlertsPerUpdate, notifications, toggleNotifications, testNotification, testNotificationStatus, theme, toggleTheme, textSize, setTextSize, updateRadius, selectSearchedLocation, requestCurrentLocation, sourceHealth, lastSyncAt, refreshing, refreshNow, safetyOpen, setSafetyOpen, aboutOpen, setAboutOpen, updateState, checkForAppUpdate, close, startWithWindows, toggleStartWithWindows, windowsPreferenceStatus, doNotDisturb, toggleDoNotDisturb, dataIsStale, usingCachedData }) {
   return (
     <aside className="settings-drawer" aria-label="Configuración de Sismi">
       <header className="drawer-heading"><div><button className="back-button" onClick={safetyOpen ? () => setSafetyOpen(false) : aboutOpen ? () => setAboutOpen(false) : close} aria-label={safetyOpen || aboutOpen ? 'Volver a configuración' : 'Volver'}><Icon name="back" size={17} /></button><div><h2>{safetyOpen ? 'Modo seguridad' : aboutOpen ? 'Acerca de Sismi' : 'Configuración'}</h2><p>{safetyOpen ? 'Guía disponible sin conexión' : aboutOpen ? 'Información de Sismi' : 'Preferencias de avisos'}</p></div></div><button className="icon-button" onClick={close} aria-label="Cerrar configuración"><Icon name="close" size={16} /></button></header>
@@ -632,9 +701,10 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
           {locationMode === 'search' ? <LocationSearch currentLocation={location} onSelect={selectSearchedLocation} /> : <div className="selected-location"><span><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><small>Ubicación de este equipo</small></div><Icon name="check" size={17} /></div>}
           <label className="range-field"><span><span>Distancia de aviso</span><strong>{location.radiusKm} km</strong></span><input type="range" min="25" max="1000" step="25" value={location.radiusKm} onChange={(event) => updateRadius(event.target.value)} /></label>
           <p className="setting-note">{locationStatus}</p>
+          <SavedLocationsPanel locations={savedLocations} currentLocation={location} nameDraft={locationNameDraft} setNameDraft={setLocationNameDraft} onSelect={selectSavedLocation} onSave={saveCurrentLocation} onRemove={removeSavedLocation} />
         </section>
 
-        <DataStatusSection sourceHealth={sourceHealth} lastSyncAt={lastSyncAt} refreshing={refreshing} onRefresh={refreshNow} />
+        <DataStatusSection sourceHealth={sourceHealth} lastSyncAt={lastSyncAt} refreshing={refreshing} onRefresh={refreshNow} usingCachedData={usingCachedData} />
 
         <section className="settings-section safety-entry-section">
           <button className="safety-entry" onClick={() => setSafetyOpen(true)}><span className="safety-entry-icon"><Icon name="shield" size={17} /></span><span><strong>Modo seguridad</strong><small>Qué hacer y a quién llamar durante una emergencia</small></span><Icon name="chevron" size={16} /></button>
@@ -664,6 +734,7 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
         <section className="settings-section appearance-section">
           <div className="section-heading"><span className="section-icon"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></span><div><strong>Apariencia</strong><span>{theme === 'dark' ? 'Modo oscuro activo' : 'Modo claro activo'}</span></div></div>
           <button className="theme-choice" onClick={toggleTheme}><span>{theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}</span><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
+          <div className="text-size-setting"><div><strong>Tamaño del texto</strong><span>Ajústalo para leer con comodidad</span></div><div className="text-size-picker" role="group" aria-label="Tamaño del texto">{[['small', 'Pequeño'], ['normal', 'Normal'], ['large', 'Grande']].map(([value, label]) => <button key={value} className={textSize === value ? 'selected' : ''} onClick={() => setTextSize(value)} aria-pressed={textSize === value}>{label}</button>)}</div></div>
         </section>
         <section className="settings-section windows-section">
           <div className="section-heading"><span className="section-icon"><Icon name="windows" size={16} /></span><div><strong>Modo Windows</strong><span>Controla cómo funciona Sismi en tu equipo</span></div></div>
@@ -680,13 +751,14 @@ function SettingsDrawer({ location, locationMode, setLocationMode, locationStatu
   )
 }
 
-function DataStatusSection({ sourceHealth, lastSyncAt, refreshing, onRefresh }) {
+function DataStatusSection({ sourceHealth, lastSyncAt, refreshing, onRefresh, usingCachedData }) {
   const sources = [['SGC', 'Servicio Geológico Colombiano'], ['USGS', 'Servicio Geológico de Estados Unidos'], ['EMSC', 'Detección sísmica internacional']]
   return <section className="settings-section data-status-section">
     <div className="section-heading"><span className="section-icon"><Icon name="signal" size={16} /></span><div><strong>Estado de datos</strong><span>Consulta de fuentes oficiales</span></div></div>
     <div className="data-status-summary"><div><span>Última sincronización</span><strong>{lastSyncAt ? formatSyncTime(lastSyncAt) : 'Aún no disponible'}</strong></div><button className="mini-refresh-button" onClick={onRefresh} disabled={refreshing}><Icon name="refresh" size={13} />{refreshing ? 'Actualizando…' : 'Actualizar'}</button></div>
     <div className="source-status-list">{sources.map(([source, label]) => <SourceStatusRow key={source} source={source} label={label} health={sourceHealth[source]} />)}</div>
     <p className="setting-note">Sismi combina las fuentes y elimina coincidencias. EMSC se usa para detección rápida.</p>
+    {usingCachedData && <div className="offline-data-note"><Icon name="download" size={13} /><span>Sin conexión: mostrando los últimos datos guardados.</span></div>}
   </section>
 }
 
@@ -694,7 +766,8 @@ function SourceStatusRow({ source, label, health }) {
   const isOk = health?.status === 'ok'
   const isError = health?.status === 'error'
   const statusText = isOk ? `${health.count} registros` : isError ? 'Sin respuesta' : 'Consultando…'
-  return <div className="source-status-row"><span className={`source-status-dot ${isOk ? 'is-ok' : isError ? 'is-error' : 'is-pending'}`} /><div><strong>{source}</strong><small>{label}</small></div><span className={`source-status-copy ${isError ? 'is-error' : ''}`}>{statusText}</span></div>
+  const freshness = health?.lastOkAt ? `Actualizada ${formatFreshness(health.lastOkAt)}` : health?.checkedAt ? `Consultada ${formatFreshness(health.checkedAt)}` : 'Sin consulta confirmada'
+  return <div className="source-status-row"><span className={`source-status-dot ${isOk ? 'is-ok' : isError ? 'is-error' : 'is-pending'}`} /><div><strong>{source}</strong><small>{label}</small><em>{freshness}</em></div><span className={`source-status-copy ${isError ? 'is-error' : ''}`}>{statusText}</span></div>
 }
 
 function SafetyPanel() {
@@ -853,6 +926,17 @@ function LocationSearch({ currentLocation, onSelect }) {
   )
 }
 
+function SavedLocationsPanel({ locations, currentLocation, nameDraft, setNameDraft, onSelect, onSave, onRemove }) {
+  return <div className="saved-locations-panel">
+    <div className="saved-locations-heading"><div><strong>Ubicaciones guardadas</strong><small>Casa, trabajo o cualquier zona que quieras vigilar.</small></div><span>{locations.length}/6</span></div>
+    <div className="saved-location-list">{locations.map((saved) => {
+      const isSelected = Number(saved.lat) === Number(currentLocation.lat) && Number(saved.lon) === Number(currentLocation.lon)
+      return <div className={`saved-location-row ${isSelected ? 'selected' : ''}`} key={saved.id}><button onClick={() => onSelect(saved)}><span><Icon name={isSelected ? 'check' : 'locate'} size={14} /></span><div><strong>{saved.name || saved.label}</strong><small>{saved.label} · {saved.radiusKm} km</small></div></button>{locations.length > 1 && <button className="saved-location-remove" onClick={() => onRemove(saved.id)} aria-label={`Eliminar ${saved.name || saved.label}`}><Icon name="close" size={13} /></button>}</div>
+    })}</div>
+    <div className="save-location-form"><input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} placeholder="Nombre: Casa, trabajo…" aria-label="Nombre de la ubicación" /><button onClick={onSave} disabled={!currentLocation?.label}><Icon name="plus" size={14} />Guardar</button></div>
+  </div>
+}
+
 function EventRow({ event, detailed = false, distanceKm, onSelect }) {
   function handleKeyDown(keyEvent) { if (keyEvent.key === 'Enter' || keyEvent.key === ' ') { keyEvent.preventDefault(); onSelect(event) } }
   return <div className={`event-row ${detailed ? 'detailed' : ''}`} role="button" tabIndex="0" onClick={() => onSelect(event)} onKeyDown={handleKeyDown}><div className={`event-marker ${event.tone}`}><strong>{event.magnitudeLabel}</strong></div><div className="row-copy"><strong>{event.place}</strong><span>{event.depth} · {event.source}{Number.isFinite(distanceKm) ? ` · ${distanceKm} km` : ''}</span></div><div className="row-time"><strong>{event.time}</strong><span>{event.magnitudeType}</span></div><Icon name="chevron" size={15} /></div>
@@ -879,6 +963,14 @@ function AlertCenter({ history, expanded, onToggle, onSelect }) {
 function AlertHistoryRow({ item, onSelect }) {
   const event = item.event || {}
   return <button className="alert-history-row" onClick={() => onSelect(event)}><span className={`alert-history-marker ${event.tone || ''}`}><Icon name="bell" size={13} /></span><span className="alert-history-copy"><strong>{event.place || 'Sismo registrado'}</strong><span>M {event.magnitudeLabel || '—'} · {event.source || '—'} · {event.depth || 'Profundidad no disponible'}</span><small>{item.reason || 'Aviso emitido por la regla activa'}</small></span><span className="alert-history-time"><strong>{formatClock(item.detectedAt)}</strong><Icon name="chevron" size={13} /></span></button>
+}
+
+function DailySummary({ count, maxEvent, sourceCount, scope }) {
+  return <section className="daily-summary" aria-label="Resumen de las últimas 24 horas"><div className="daily-summary-heading"><div><strong>Resumen de 24 horas</strong><span>{scope === 'global' ? 'Todo el mundo' : 'Mi zona'}</span></div><Icon name="activity" size={15} /></div><div className="daily-summary-grid"><div><span>Eventos</span><strong>{count}</strong></div><div><span>Mayor magnitud</span><strong>{maxEvent ? `M ${maxEvent.magnitudeLabel}` : '—'}</strong></div><div><span>Fuentes</span><strong>{sourceCount || '—'}</strong></div></div></section>
+}
+
+function PrintableHistory({ events, location, scope }) {
+  return <section className="printable-history" aria-label="Historial sísmico para imprimir"><div className="printable-history-header"><img src="/sismi-logo.png" alt="" /><div><h1>Sismi · Historial sísmico</h1><p>{scope === 'global' ? 'Todo el mundo' : `Mi zona · ${location.label}`} · {events.length} registros</p></div></div><table><thead><tr><th>Fecha y hora</th><th>Lugar</th><th>Magnitud</th><th>Profundidad</th><th>Fuente</th></tr></thead><tbody>{events.map((event) => <tr key={event.id}><td>{event.timeLabel || event.time || formatSyncTime(event.timestamp)}</td><td>{event.place}</td><td>M {event.magnitudeLabel}</td><td>{event.depth}</td><td>{event.source}</td></tr>)}</tbody></table><footer>Generado por Sismi · {new Date().toLocaleDateString('es-CO')}</footer></section>
 }
 
 function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, timelineEvents, timelineAt, setTimelineAt, timelineMin, timelineMax, onSelect }) {
@@ -1307,6 +1399,14 @@ function isQuietHoursNow(start, end) {
 function formatClock(timestamp) { return new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatSyncTime(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
 function formatTimelineMoment(timestamp) { return new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(timestamp) }
+function formatFreshness(timestamp) {
+  if (!Number.isFinite(Number(timestamp))) return 'sin hora'
+  const minutes = Math.max(0, Math.round((Date.now() - Number(timestamp)) / 60000))
+  if (minutes < 1) return 'hace menos de 1 min'
+  if (minutes < 60) return `hace ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  return `hace ${hours} h`
+}
 function formatDetectionLag(event) {
   if (!Number.isFinite(event?.detectedAt) || !Number.isFinite(event?.timestamp)) return ''
   const minutes = Math.max(0, Math.round((event.detectedAt - event.timestamp) / 60000))
@@ -1315,6 +1415,29 @@ function formatDetectionLag(event) {
 function formatValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Sí' : 'No'; return String(value) }
 function readStoredValue(key, fallback) { try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : fallback } catch { return fallback } }
 function writeStoredValue(key, value) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* almacenamiento opcional */ } }
+function normalizeTextSize(value) { return ['small', 'normal', 'large'].includes(value) ? value : 'normal' }
+function readSavedLocations(currentLocation) {
+  const saved = readStoredValue('sismi-saved-locations', null)
+  if (Array.isArray(saved) && saved.length > 0) return saved.slice(0, 6)
+  return [{ ...currentLocation, id: `${Number(currentLocation.lat).toFixed(5)}:${Number(currentLocation.lon).toFixed(5)}`, name: currentLocation.label }]
+}
+function escapeCsv(value) { return `"${String(value ?? '').replace(/"/g, '""')}"` }
+function buildEarthquakeCsv(events) {
+  const header = ['Fecha', 'Lugar', 'Magnitud', 'Tipo', 'Profundidad', 'Fuente', 'Latitud', 'Longitud']
+  const rows = events.map((event) => [event.timeLabel || event.time || formatSyncTime(event.timestamp), event.place, event.magnitudeLabel, event.magnitudeType, event.depth, event.source, event.latitude, event.longitude])
+  return `\uFEFF${[header, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\r\n')}`
+}
+function downloadTextFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
 function readAlertHistory() {
   const saved = readStoredValue('sismi-alert-history', [])
   if (!Array.isArray(saved)) return []
