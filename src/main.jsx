@@ -88,6 +88,7 @@ const DEFAULT_EMERGENCY_CONTACTS = [
 const ALERT_SOUND_OPTIONS = ['intense', 'brief', 'silent']
 const ALERT_SOURCE_OPTIONS = ['all', 'SGC', 'USGS', 'EMSC']
 const DEFAULT_ALERT_RULE = { minMagnitude: 3, source: 'all', quietHoursEnabled: false, quietHoursStart: '22:00', quietHoursEnd: '07:00', sound: 'intense', maxAlertsPerUpdate: 3 }
+const ALERT_HISTORY_LIMIT = 50
 
 function Icon({ name, size = 18 }) {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: '1.8', strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true' }
@@ -100,6 +101,7 @@ function Icon({ name, size = 18 }) {
     chevron: <path d="m9 18 6-6-6-6" />,
     close: <path d="m6 6 12 12M18 6 6 18" />,
     download: <><path d="M12 3v11" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></>,
+    filter: <><path d="M4 5h16" /><path d="M7 12h10" /><path d="M10 19h4" /></>,
     gear: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2.5v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H6.4v-2.5h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2H15v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2V15h-.2a1.7 1.7 0 0 0-1.5 0Z" /></>,
     settings: <><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65-2-3.46-2.49 1a7.3 7.3 0 0 0-1.69-.98L15 3h-4l-.37 2.93c-.6.25-1.17.58-1.69.98l-2.49-1-2 3.46 2.11 1.65c-.04.32-.07.65-.07.98s.02.66.07.98l-2.11 1.65 2 3.46 2.49-1c.52.4 1.09.73 1.69.98L11 21h4l.37-2.93c.6-.25 1.17-.58 1.69-.98l2.49 1 2-3.46-2.11-1.65Z" /><circle cx="13" cy="12" r="2.5" /></>,
     info: <><circle cx="12" cy="12" r="9" /><path d="M12 10.5v5" /><path d="M12 7.5h.01" /></>,
@@ -147,6 +149,8 @@ function App() {
   const [alertScope, setAlertScope] = useState(() => readStoredValue('sismi-alert-scope', 'nearby') === 'global' ? 'global' : 'nearby')
   const [alertRules, setAlertRules] = useState(readAlertRules)
   const [historyQuery, setHistoryQuery] = useState('')
+  const [alertHistory, setAlertHistory] = useState(readAlertHistory)
+  const [alertHistoryExpanded, setAlertHistoryExpanded] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [activeAlert, setActiveAlert] = useState(null)
   const [testNotificationStatus, setTestNotificationStatus] = useState('')
@@ -215,6 +219,7 @@ function App() {
   }
 
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
+  useEffect(() => { writeStoredValue('sismi-alert-history', alertHistory) }, [alertHistory])
   useEffect(() => { doNotDisturbRef.current = doNotDisturb; writeStoredValue('sismi-do-not-disturb', doNotDisturb) }, [doNotDisturb])
   useEffect(() => {
     const interval = window.setInterval(() => setStatusClock(Date.now()), 30000)
@@ -275,6 +280,14 @@ function App() {
   useEffect(() => {
     if (isDesktopApp()) document.documentElement.classList.add('native-window')
     return () => document.documentElement.classList.remove('native-window')
+  }, [])
+  useEffect(() => {
+    const fallbackTimer = window.setTimeout(() => {
+      if (loaderFinished.current) return
+      loaderFinished.current = true
+      setBooting(false)
+    }, 2200)
+    return () => window.clearTimeout(fallbackTimer)
   }, [])
   useEffect(() => {
     if (!isDesktopApp()) return undefined
@@ -415,6 +428,7 @@ function App() {
     const testTime = Date.now()
     const testAlert = { id: 'test-alert', place: 'Simulación de Sismi', magnitudeLabel: '4.8', magnitudeType: 'ML', depth: '12 km', source: 'PRUEBA', tone: 'amber', timeLabel: 'Ahora', timestamp: testTime, detectedAt: testTime, isTest: true }
     setActiveAlert(testAlert)
+    registerAlertHistory([testAlert], 'test', locationRef.current, activeAlertRule.minMagnitude, 'Prueba de notificación')
     await playAlertSound(alertSoundRef.current)
     await notifyEvent(testAlert, alertSoundRef.current)
     setTestNotificationStatus('Alerta enviada correctamente.')
@@ -462,9 +476,32 @@ function App() {
 
     eligibleEvents.forEach((event) => alertedEventKeys.current.add(getEventKey(event)))
     const eventsToNotify = eligibleEvents.slice(0, maxAlertsPerUpdateRef.current)
+    registerAlertHistory(eventsToNotify, scope, center, threshold)
     setActiveAlert(eventsToNotify[0])
     if (alertSoundRef.current !== 'silent') await playAlertSound(alertSoundRef.current)
     await Promise.allSettled(eventsToNotify.map((event) => notifyEvent(event, alertSoundRef.current)))
+  }
+
+  function registerAlertHistory(alertEvents, scope, center, threshold, reasonOverride) {
+    const createdAt = Date.now()
+    const nextEntries = alertEvents.map((event) => {
+      const eventDistance = scope === 'nearby' ? distanceBetween(center, event) : null
+      const reason = reasonOverride || (scope === 'global'
+        ? `Todo el mundo · magnitud mínima ${Number(threshold).toFixed(1)}`
+        : `Mi zona · ${Number.isFinite(eventDistance) ? `${eventDistance} km de distancia` : 'ubicación configurada'}`)
+      return {
+        key: event.isTest ? `${getEventKey(event)}:${event.detectedAt || createdAt}` : getEventKey(event),
+        event: { ...event },
+        detectedAt: event.detectedAt || createdAt,
+        scope,
+        reason,
+      }
+    })
+    setAlertHistory((current) => {
+      const existingKeys = new Set(current.map((item) => item.key))
+      const freshEntries = nextEntries.filter((item) => !existingKeys.has(item.key))
+      return [...freshEntries, ...current].slice(0, ALERT_HISTORY_LIMIT)
+    })
   }
 
   function selectSearchedLocation(place) {
@@ -521,7 +558,7 @@ function App() {
         {activeAlert && <EarthquakeAlert event={activeAlert} onClose={() => setActiveAlert(null)} onSafety={() => { setActiveAlert(null); setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }} />}
 
         <nav className="tabs" aria-label="Secciones">
-          <button className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Ahora</button>
+          <button className={activeTab === 'live' ? 'active' : ''} onClick={() => setActiveTab('live')}>Resumen</button>
           <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>Historial <span>{scopedEvents.length}</span></button>
           <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}><Icon name="globe" size={14} />Mapa</button>
         </nav>
@@ -529,10 +566,10 @@ function App() {
         {!selectedEvent && (activeTab === 'live' ? (
           <div className="content-stack">
             <article className="latest-card">
-              <div className="card-topline"><span className="live-label"><span />{latestNearby ? 'En tu zona' : 'Último sismo'}</span><time>{latest.timeLabel || latest.time}</time></div>
+              <div className="card-topline"><span className="live-label"><span />{latestNearby ? 'Sismo en tu zona' : 'Último sismo'}</span><time>{latest.timeLabel || latest.time}</time></div>
               <div className="event-primary">
-                <div className="magnitude-value"><strong>{latest.magnitudeLabel}</strong><span>{latest.magnitudeType}</span></div>
-                <div className="event-heading"><h2>{latest.place}</h2><p>{latest.source} · {latest.metadata?.status || 'registrado'}</p></div>
+                <div className="magnitude-value"><small>Magnitud</small><strong>{latest.magnitudeLabel}</strong><span>{latest.magnitudeType}</span></div>
+                <div className="event-heading"><span className="event-heading-label">Ubicación del evento</span><h2>{latest.place}</h2><p><span className="source-pill">{latest.source}</span><span>{latest.metadata?.status || 'Registrado'}</span></p></div>
               </div>
               <div className="event-facts">
                 <div><span>Profundidad</span><strong>{latest.depth}</strong></div>
@@ -551,6 +588,8 @@ function App() {
               <div className="section-title"><div className="section-heading-copy"><h3>Actividad reciente</h3><span className="section-context">{alertScope === 'global' ? 'Todo el mundo' : 'Mi zona'}</span></div><button onClick={() => setActiveTab('history')}>Ver todo <Icon name="chevron" size={14} /></button></div>
               <div className="event-list">{scopedRecentEvents.length > 0 ? scopedRecentEvents.slice(0, 3).map((event) => <EventRow key={event.id} event={event} distanceKm={distanceBetween(location, event)} onSelect={setSelectedEvent} />) : <div className="activity-empty"><Icon name={alertScope === 'global' ? 'globe' : 'locate'} size={18} /><span>{alertScope === 'global' ? 'No hay sismos registrados en las últimas 24 horas.' : 'No hay sismos recientes dentro de tu zona.'}</span></div>}</div>
             </section>
+
+            <AlertCenter history={alertHistory} expanded={alertHistoryExpanded} onToggle={() => setAlertHistoryExpanded((current) => !current)} onSelect={setSelectedEvent} />
 
             <div className="location-summary"><span className="location-icon"><Icon name="locate" size={16} /></span><div><strong>{location.label}</strong><span>{location.isCountry ? 'Cobertura nacional' : `Distancia de aviso: ${location.radiusKm} km`}</span></div><button onClick={() => { setAboutOpen(false); setSafetyOpen(false); setSettingsOpen(true) }}>Cambiar</button></div>
           </div>
@@ -819,11 +858,37 @@ function EventRow({ event, detailed = false, distanceKm, onSelect }) {
   return <div className={`event-row ${detailed ? 'detailed' : ''}`} role="button" tabIndex="0" onClick={() => onSelect(event)} onKeyDown={handleKeyDown}><div className={`event-marker ${event.tone}`}><strong>{event.magnitudeLabel}</strong></div><div className="row-copy"><strong>{event.place}</strong><span>{event.depth} · {event.source}{Number.isFinite(distanceKm) ? ` · ${distanceKm} km` : ''}</span></div><div className="row-time"><strong>{event.time}</strong><span>{event.magnitudeType}</span></div><Icon name="chevron" size={15} /></div>
 }
 
+function AlertCenter({ history, expanded, onToggle, onSelect }) {
+  const visibleHistory = history.slice(0, expanded ? 8 : 3)
+  return (
+    <section className="alert-center" aria-label="Centro de alertas">
+      <div className="section-title alert-center-title">
+        <div className="section-heading-copy"><span className="alert-center-icon"><Icon name="bell" size={14} /></span><div><h3>Centro de alertas</h3><span className="section-context">Avisos enviados por Sismi</span></div></div>
+        <span className="alert-center-count">{history.length}</span>
+      </div>
+      {history.length > 0 ? <>
+        <div className="alert-history-list">
+          {visibleHistory.map((item) => <AlertHistoryRow key={item.key} item={item} onSelect={onSelect} />)}
+        </div>
+        {history.length > 3 && <button className="alert-center-toggle" onClick={onToggle}>{expanded ? 'Mostrar menos' : `Ver ${history.length - 3} más`}<Icon name="chevron" size={13} /></button>}
+      </> : <div className="alert-center-empty"><span><Icon name="bell" size={16} /></span><div><strong>Aún no hay avisos</strong><small>Cuando Sismi envíe una alerta, aparecerá aquí.</small></div></div>}
+    </section>
+  )
+}
+
+function AlertHistoryRow({ item, onSelect }) {
+  const event = item.event || {}
+  return <button className="alert-history-row" onClick={() => onSelect(event)}><span className={`alert-history-marker ${event.tone || ''}`}><Icon name="bell" size={13} /></span><span className="alert-history-copy"><strong>{event.place || 'Sismo registrado'}</strong><span>M {event.magnitudeLabel || '—'} · {event.source || '—'} · {event.depth || 'Profundidad no disponible'}</span><small>{item.reason || 'Aviso emitido por la regla activa'}</small></span><span className="alert-history-time"><strong>{formatClock(item.detectedAt)}</strong><Icon name="chevron" size={13} /></span></button>
+}
+
 function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, timelineEvents, timelineAt, setTimelineAt, timelineMin, timelineMax, onSelect }) {
   const [timelinePlaying, setTimelinePlaying] = useState(false)
   const [selectedCluster, setSelectedCluster] = useState(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [timelineOpen, setTimelineOpen] = useState(false)
   const hasTimeline = timelineMax > timelineMin
   const timelineValue = timelineAt === null ? timelineMax : timelineAt
+  const hasActiveFilters = source !== 'all' || minMagnitude > 0 || timeRange !== 'all' || query.trim() || onlyNearby
 
   useEffect(() => { setSelectedCluster(null) }, [events])
 
@@ -856,48 +921,56 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
     setTimelineAt(null)
   }
 
+  if (selectedCluster) return <MapClusterView cluster={selectedCluster} onSelect={onSelect} onBack={() => setSelectedCluster(null)} />
+
   return (
     <div className="map-panel">
       <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="map" size={18} /></span><div><h2>Sismos en el mundo</h2><p>Consulta eventos por zona y fecha</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
-      <div className="map-tools">
-        <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca un lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
-        <div className="map-tool-row">
-          <div className="map-source-filter" role="group" aria-label="Filtrar por fuente">
-            {['all', 'USGS', 'SGC', 'EMSC'].map((value) => <button key={value} className={source === value ? 'selected' : ''} onClick={() => setSource(value)}>{value === 'all' ? 'Todas' : value}</button>)}
-          </div>
-          <select className="map-time-filter" value={timeRange} onChange={(event) => setTimeRange(event.target.value)} aria-label="Periodo visible"><option value="all">Todo lo disponible</option><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 días</option><option value="30d">Últimos 30 días</option></select>
-        </div>
-        <div className="map-control-row">
-          <label className="map-range"><span>Magnitud mínima <strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="0" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
-          <button className={`map-nearby-toggle ${onlyNearby ? 'selected' : ''}`} onClick={() => setOnlyNearby((current) => !current)} aria-pressed={onlyNearby}><Icon name="locate" size={14} />Mi zona</button>
-        </div>
+      <div className="map-panel-quick-actions">
+        <button className={`map-panel-toggle ${filtersOpen ? 'is-open' : ''}`} onClick={() => setFiltersOpen((current) => !current)} aria-expanded={filtersOpen} aria-controls="map-filters-panel"><Icon name="filter" size={14} /><span>Filtros</span>{hasActiveFilters && <i aria-label="Filtros activos" />}</button>
+        <button className={`map-panel-toggle ${timelineOpen ? 'is-open' : ''}`} onClick={() => setTimelineOpen((current) => !current)} aria-expanded={timelineOpen} aria-controls="map-timeline-panel"><Icon name="activity" size={14} /><span>Línea de tiempo</span>{timelineAt !== null && <i aria-label="Línea de tiempo activa" />}</button>
       </div>
-      <div className="map-timeline">
+      {filtersOpen && <div className="map-tools" id="map-filters-panel">
+          <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca un lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
+          <div className="map-tool-row">
+            <div className="map-source-filter" role="group" aria-label="Filtrar por fuente">
+              {['all', 'USGS', 'SGC', 'EMSC'].map((value) => <button key={value} className={source === value ? 'selected' : ''} onClick={() => setSource(value)}>{value === 'all' ? 'Todas' : value}</button>)}
+            </div>
+            <select className="map-time-filter" value={timeRange} onChange={(event) => setTimeRange(event.target.value)} aria-label="Periodo visible"><option value="all">Todo lo disponible</option><option value="24h">Últimas 24 horas</option><option value="7d">Últimos 7 días</option><option value="30d">Últimos 30 días</option></select>
+          </div>
+          <div className="map-control-row">
+            <label className="map-range"><span>Magnitud mínima <strong>{Number(minMagnitude).toFixed(1)}</strong></span><input type="range" min="0" max="7" step="0.5" value={minMagnitude} onChange={(event) => setMinMagnitude(Number(event.target.value))} /></label>
+            <button className={`map-nearby-toggle ${onlyNearby ? 'selected' : ''}`} onClick={() => setOnlyNearby((current) => !current)} aria-pressed={onlyNearby}><Icon name="locate" size={14} />Mi zona</button>
+          </div>
+        </div>
+      }
+      {timelineOpen && <div className="map-timeline" id="map-timeline-panel">
         <div className="map-timeline-heading"><span><Icon name="activity" size={13} />Línea de tiempo</span><strong>{timelineAt === null ? 'Todos los eventos' : formatTimelineMoment(timelineAt)}</strong></div>
         <div className="map-timeline-controls"><button className="timeline-play" onClick={toggleTimeline} disabled={!hasTimeline} aria-label={timelinePlaying ? 'Pausar línea de tiempo' : 'Reproducir línea de tiempo'}><Icon name={timelinePlaying ? 'pause' : 'play'} size={12} /></button><input type="range" min={timelineMin || 0} max={timelineMax || 1} value={timelineValue || 0} disabled={!hasTimeline} onChange={(event) => { setTimelinePlaying(false); setTimelineAt(Number(event.target.value)) }} aria-label="Recorrer la línea de tiempo" /><button className="timeline-all" onClick={clearTimeline} disabled={timelineAt === null}>Todo</button></div>
         <div className="map-timeline-scale"><span>{timelineMin ? formatTimelineMoment(timelineMin) : 'Sin fecha'}</span><span>{timelineMax ? formatTimelineMoment(timelineMax) : 'Sin fecha'}</span></div>
       </div>
+      }
       <div className="map-status"><span><i />{events.length ? `${events.length} sismos visibles` : 'No hay sismos con estos filtros'}</span><small>{timelineAt === null ? 'Mueve el mapa · acerca la vista · toca un punto para ver sus datos' : `${timelineEvents.length} en el periodo · desliza para recorrerlos`}</small></div>
       <WorldEarthquakeMap events={events} location={location} onSelect={onSelect} onClusterSelect={setSelectedCluster} />
-      {selectedCluster && <MapClusterList cluster={selectedCluster} onSelect={onSelect} onClose={() => setSelectedCluster(null)} />}
       <div className="map-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Los grupos reúnen eventos cercanos · ciudades y países vienen de OpenStreetMap</small></div>
-      <div className="map-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
 }
 
-function MapClusterList({ cluster, onSelect, onClose }) {
+function MapClusterView({ cluster, onSelect, onBack }) {
   const clusterEvents = [...(cluster.clusterEvents || [])].sort((first, second) => second.timestamp - first.timestamp)
   return (
-    <section className="map-cluster-list" aria-label={`${cluster.clusterSize} sismos agrupados`}>
-      <div className="map-cluster-heading">
-        <div><span className="map-cluster-icon"><Icon name="activity" size={15} /></span><div><strong>{cluster.clusterSize} sismos en esta zona</strong><span>Mayor magnitud M{cluster.magnitudeLabel} · toca uno para ver su información</span></div></div>
-        <button className="icon-button" onClick={onClose} aria-label="Cerrar lista de sismos agrupados"><Icon name="close" size={15} /></button>
-      </div>
-      <div className="map-cluster-items">
+    <div className="map-panel map-cluster-view" aria-label={`${cluster.clusterSize} sismos agrupados`}>
+      <div className="map-cluster-back-row"><button className="map-back-button" onClick={onBack}><Icon name="back" size={15} />Volver al mapa</button><span>{cluster.clusterSize} eventos</span></div>
+      <section className="map-cluster-view-card">
+        <div className="map-cluster-view-title"><span className="map-cluster-icon"><Icon name="activity" size={17} /></span><div><h2>Sismos agrupados</h2><p>Eventos registrados en una misma zona del mapa.</p></div></div>
+        <div className="map-cluster-view-facts"><div><span>Eventos</span><strong>{cluster.clusterSize}</strong></div><div><span>Mayor magnitud</span><strong>M{cluster.magnitudeLabel}</strong></div><div><span>Zona aproximada</span><strong>{cluster.place || 'Sin ubicación'}</strong></div></div>
+      </section>
+      <div className="map-cluster-view-heading"><div><strong>Eventos de esta zona</strong><span>Selecciona uno para ver su información completa.</span></div><span>{clusterEvents.length} registros</span></div>
+      <div className="map-cluster-view-items">
         {clusterEvents.map((event) => <button className="map-cluster-item" key={getEventKey(event)} onClick={() => onSelect(event)}><span className={`event-marker ${event.tone}`}><strong>{event.magnitudeLabel}</strong></span><span className="map-cluster-copy"><strong>{event.place}</strong><small>{event.timeLabel} · {event.depth} · {event.source}</small></span><Icon name="chevron" size={14} /></button>)}
       </div>
-    </section>
+    </div>
   )
 }
 
@@ -1242,6 +1315,11 @@ function formatDetectionLag(event) {
 function formatValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'Sí' : 'No'; return String(value) }
 function readStoredValue(key, fallback) { try { const saved = localStorage.getItem(key); return saved ? JSON.parse(saved) : fallback } catch { return fallback } }
 function writeStoredValue(key, value) { try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* almacenamiento opcional */ } }
+function readAlertHistory() {
+  const saved = readStoredValue('sismi-alert-history', [])
+  if (!Array.isArray(saved)) return []
+  return saved.filter((item) => item && item.key && item.event && typeof item.event === 'object').slice(0, ALERT_HISTORY_LIMIT)
+}
 function readAlertRules() {
   const saved = readStoredValue('sismi-alert-rules', {})
   const legacy = {
