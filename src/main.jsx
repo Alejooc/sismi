@@ -1,9 +1,6 @@
 import { StrictMode, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import Globe from 'globe.gl'
 import L from 'leaflet'
-import { feature } from 'topojson-client'
-import countriesTopology from 'world-atlas/countries-110m.json'
 import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
 import { subscribeEmscRealtime } from './services/emsc'
@@ -14,71 +11,7 @@ import './styles.css'
 
 const DEFAULT_LOCATION = { label: 'Bogotá, Colombia', lat: BOGOTA.lat, lon: BOGOTA.lon, radiusKm: 250 }
 const DATA_STALE_AFTER_MS = 5 * 60 * 1000
-const COUNTRY_POLYGONS = feature(countriesTopology, countriesTopology.objects.countries).features
-const CITY_LABELS = [
-  { label: 'Bogotá', lat: 4.711, lon: -74.0721, type: 'city' },
-  { label: 'Medellín', lat: 6.2442, lon: -75.5812, type: 'city' },
-  { label: 'Cali', lat: 3.4516, lon: -76.532, type: 'city' },
-  { label: 'Barranquilla', lat: 10.9685, lon: -74.7813, type: 'city' },
-  { label: 'Quito', lat: -0.1807, lon: -78.4678, type: 'city' },
-  { label: 'Lima', lat: -12.0464, lon: -77.0428, type: 'city' },
-  { label: 'Ciudad de México', lat: 19.4326, lon: -99.1332, type: 'city' },
-  { label: 'Nueva York', lat: 40.7128, lon: -74.006, type: 'city' },
-  { label: 'Los Ángeles', lat: 34.0522, lon: -118.2437, type: 'city' },
-  { label: 'São Paulo', lat: -23.5505, lon: -46.6333, type: 'city' },
-  { label: 'Buenos Aires', lat: -34.6037, lon: -58.3816, type: 'city' },
-  { label: 'Londres', lat: 51.5074, lon: -0.1278, type: 'city' },
-  { label: 'Madrid', lat: 40.4168, lon: -3.7038, type: 'city' },
-  { label: 'París', lat: 48.8566, lon: 2.3522, type: 'city' },
-  { label: 'El Cairo', lat: 30.0444, lon: 31.2357, type: 'city' },
-  { label: 'Ciudad del Cabo', lat: -33.9249, lon: 18.4241, type: 'city' },
-  { label: 'Estambul', lat: 41.0082, lon: 28.9784, type: 'city' },
-  { label: 'Nueva Delhi', lat: 28.6139, lon: 77.209, type: 'city' },
-  { label: 'Tokio', lat: 35.6762, lon: 139.6503, type: 'city' },
-  { label: 'Seúl', lat: 37.5665, lon: 126.978, type: 'city' },
-  { label: 'Manila', lat: 14.5995, lon: 120.9842, type: 'city' },
-  { label: 'Sídney', lat: -33.8688, lon: 151.2093, type: 'city' },
-  { label: 'Auckland', lat: -36.8509, lon: 174.7645, type: 'city' },
-]
-const COUNTRY_LABELS = [
-  { label: 'Colombia', lat: 4.6, lon: -74.1, type: 'country' },
-  { label: 'Ecuador', lat: -1.4, lon: -78.4, type: 'country' },
-  { label: 'Perú', lat: -9.2, lon: -75.0, type: 'country' },
-  { label: 'Venezuela', lat: 7.0, lon: -66.0, type: 'country' },
-  { label: 'México', lat: 23.6, lon: -102.5, type: 'country' },
-  { label: 'Brasil', lat: -10.8, lon: -52.0, type: 'country' },
-  { label: 'Chile', lat: -30.0, lon: -71.0, type: 'country' },
-  { label: 'Argentina', lat: -36.0, lon: -64.0, type: 'country' },
-  { label: 'Estados Unidos', lat: 38.0, lon: -100.0, type: 'country' },
-  { label: 'España', lat: 40.2, lon: -3.7, type: 'country' },
-  { label: 'Japón', lat: 36.2, lon: 138.3, type: 'country' },
-  { label: 'Australia', lat: -25.3, lon: 133.8, type: 'country' },
-]
-
-function getGlobeLabels(location, events = [], globePoints = []) {
-  const monitor = location ? { ...location, type: 'monitor' } : null
-  const magnitudeLabels = events.filter((event) => Number(event.magnitude) >= 4.5).map((event) => ({
-    label: `M${event.magnitudeLabel}`,
-    lat: Number(event.latitude),
-    lon: Number(event.longitude),
-    type: 'event',
-    magnitude: Number(event.magnitude) || 0,
-  })).filter((event) => Number.isFinite(event.lat) && Number.isFinite(event.lon))
-  const clusterLabels = globePoints.filter((point) => point.isCluster).map((point) => ({
-    label: `${point.clusterSize}`,
-    lat: Number(point.latitude),
-    lon: Number(point.longitude),
-    type: 'cluster',
-    magnitude: Number(point.magnitude) || 0,
-  })).filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
-  return [monitor, ...COUNTRY_LABELS, ...CITY_LABELS, ...clusterLabels, ...magnitudeLabels].filter(Boolean)
-}
-
-function getWaveEvents(events) {
-  return events.filter((event) => Number(event.magnitude) >= 3).slice(0, 24)
-}
-
-function getGlobePoints(events) {
+function getMapPoints(events) {
   const gridStep = events.length > 800 ? 1.5 : 1
   const buckets = new Map()
 
@@ -922,7 +855,7 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
 
   return (
     <div className="map-panel">
-      <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="globe" size={18} /></span><div><h2>Sismos en el mundo</h2><p>Consulta eventos por zona y fecha</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
+      <div className="map-panel-heading"><div><span className="map-panel-icon"><Icon name="map" size={18} /></span><div><h2>Sismos en el mundo</h2><p>Consulta eventos por zona y fecha</p></div></div><span className="map-count">{events.length} / {totalEvents}</span></div>
       <div className="map-tools">
         <label className="map-search"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Busca un lugar o región" aria-label="Buscar en el mapa" />{query && <button onClick={() => setQuery('')} aria-label="Limpiar búsqueda"><Icon name="close" size={14} /></button>}</label>
         <div className="map-tool-row">
@@ -942,130 +875,168 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
         <div className="map-timeline-scale"><span>{timelineMin ? formatTimelineMoment(timelineMin) : 'Sin fecha'}</span><span>{timelineMax ? formatTimelineMoment(timelineMax) : 'Sin fecha'}</span></div>
       </div>
       <div className="map-status"><span><i />{events.length ? `${events.length} sismos visibles` : 'No hay sismos con estos filtros'}</span><small>{timelineAt === null ? 'Mueve el mapa · acerca la vista · toca un punto para ver sus datos' : `${timelineEvents.length} en el periodo · desliza para recorrerlos`}</small></div>
-      <WorldEarthquakeGlobe events={events} location={location} onSelect={onSelect} />
-      <div className="globe-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Los grupos muestran cuántos eventos hay en una zona</small></div>
-      <div className="globe-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
+      <WorldEarthquakeMap events={events} location={location} onSelect={onSelect} />
+      <div className="map-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Los grupos reúnen eventos cercanos · ciudades y países vienen de OpenStreetMap</small></div>
+      <div className="map-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
 }
 
-function WorldEarthquakeGlobe({ events, location, onSelect }) {
-  const globeContainer = useRef(null)
-  const globeRef = useRef(null)
+function WorldEarthquakeMap({ events, location, onSelect }) {
+  const mapContainer = useRef(null)
+  const mapRef = useRef(null)
+  const renderEventsRef = useRef(null)
+  const updateLocationRef = useRef(null)
   const onSelectRef = useRef(onSelect)
   const locationRef = useRef(location)
-  const eventsRef = useRef(events)
+  const [mapState, setMapState] = useState('loading')
 
   useEffect(() => { onSelectRef.current = onSelect }, [onSelect])
-  useEffect(() => { locationRef.current = location }, [location])
 
   useEffect(() => {
-    if (!globeContainer.current) return undefined
+    if (!mapContainer.current) return undefined
 
-    const initialPoints = getGlobePoints(events)
-    const globe = Globe()(globeContainer.current)
-      .backgroundColor('rgba(0,0,0,0)')
-      .globeImageUrl('https://unpkg.com/three-globe/example/img/earth-dark.jpg')
-      .bumpImageUrl('https://unpkg.com/three-globe/example/img/earth-topology.png')
-      .showGraticules(true)
-      .showAtmosphere(true)
-      .atmosphereColor('#79b58f')
-      .atmosphereAltitude(0.07)
-      .pointLat('latitude')
-      .pointLng('longitude')
-      .pointColor((event) => event.isCluster ? '#c3dfcb' : Number(event.magnitude) >= 4.5 ? '#d6eadb' : Number(event.magnitude) >= 3 ? '#a9cfb5' : '#83b69a')
-      .pointRadius((event) => event.isCluster ? Math.min(0.034, 0.016 + Math.log2(event.clusterSize) * 0.004) : Math.max(0.009, Math.min(0.018, 0.008 + (Number(event.magnitude) || 0) * 0.002)))
-      .pointAltitude((event) => event.isCluster ? 0.006 : 0.002)
-      .pointResolution(8)
-      .pointsMerge(false)
-      .pointLabel((event) => event.isCluster ? `${event.clusterSize} sismos en esta zona · evento mayor M${event.magnitudeLabel}` : `${event.place} · M${event.magnitudeLabel} · ${event.source}`)
-      .pointsData(initialPoints)
-      .ringsData(getWaveEvents(events))
-      .ringLat('latitude')
-      .ringLng('longitude')
-      .ringAltitude(0.005)
-      .ringColor((event) => Number(event.magnitude) >= 4.5 ? ['rgba(214, 234, 219, 0.42)', 'rgba(214, 234, 219, 0)'] : ['rgba(131, 182, 154, 0.28)', 'rgba(131, 182, 154, 0)'])
-      .ringMaxRadius((event) => Math.min(0.82, 0.28 + (Number(event.magnitude) || 0) * 0.06))
-      .ringPropagationSpeed(0.34)
-      .ringRepeatPeriod(2600)
-      .polygonsData(COUNTRY_POLYGONS)
-      .polygonLabel((country) => country.properties?.name || 'País')
-      .polygonCapColor(() => 'rgba(126, 181, 145, 0.018)')
-      .polygonSideColor(() => 'rgba(126, 181, 145, 0.035)')
-      .polygonStrokeColor(() => 'rgba(176, 216, 188, 0.28)')
-      .polygonAltitude(0.002)
-      .polygonsTransitionDuration(0)
-      .labelsData(getGlobeLabels(location, events, initialPoints))
-      .labelLat('lat')
-      .labelLng('lon')
-      .labelText((place) => place.label)
-      .labelColor((place) => place.type === 'event' ? (place.magnitude >= 4.5 ? '#d6eadb' : '#83b69a') : place.type === 'cluster' ? '#c3dfcb' : place.type === 'monitor' ? '#b9dfc4' : 'rgba(222, 239, 226, 0.68)')
-      .labelSize((place) => place.type === 'event' ? 0.07 : place.type === 'cluster' ? 0.075 : place.type === 'monitor' ? 0.14 : 0.09)
-      .labelDotRadius((place) => place.type === 'event' ? 0 : place.type === 'cluster' ? 0 : place.type === 'monitor' ? 0.08 : 0.04)
-      .labelAltitude((place) => place.type === 'event' ? 0.008 : place.type === 'cluster' ? 0.012 : place.type === 'monitor' ? 0.025 : 0.014)
-      .labelResolution(2)
-      .onPointClick((event) => onSelectRef.current(event.isCluster ? event.clusterEvents[0] : event))
+    let cancelled = false
+    let map = null
+    let primaryLayer = null
+    let fallbackLayer = null
+    let resizeObserver = null
 
-    globe.width(globeContainer.current.clientWidth).height(globeContainer.current.clientHeight)
-    const controls = globe.controls()
-    controls.enableRotate = true
-    controls.enableZoom = true
-    controls.enablePan = false
-    controls.autoRotate = false
-    controls.minDistance = 102
-    controls.maxDistance = 450
-    globe.pointOfView({ lat: location?.lat || 0, lng: location?.lon || 0, altitude: 2.6 }, 0)
-    globe.globeMaterial().transparent = true
-    globe.globeMaterial().opacity = 0.92
-    globeRef.current = globe
-    eventsRef.current = events
+    const initializeMap = () => {
+      if (cancelled || map || !mapContainer.current || mapContainer.current._leaflet_id) return
 
-    const handleControlsChange = () => {
-      const nextPoints = getGlobePoints(eventsRef.current)
-      globe.pointsData(nextPoints)
-      globe.labelsData(getGlobeLabels(locationRef.current, eventsRef.current, nextPoints))
+      const initialCenter = location ? [location.lat, location.lon] : [20, 0]
+      map = L.map(mapContainer.current, {
+        attributionControl: false,
+        zoomControl: false,
+        scrollWheelZoom: true,
+        worldCopyJump: true,
+        preferCanvas: true,
+        minZoom: 2,
+        maxZoom: 18,
+      }).setView(initialCenter, location ? 4 : 2)
+      mapRef.current = map
+
+      const eventsLayer = L.layerGroup().addTo(map)
+      const locationLayer = L.layerGroup().addTo(map)
+      let fallbackUsed = false
+
+      const markReady = () => { if (!cancelled) setMapState('ready') }
+      const useFallbackLayer = () => {
+        if (fallbackUsed || cancelled || !map) return
+        fallbackUsed = true
+        fallbackLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '© OpenStreetMap contributors, Tiles style HOT',
+        }).on('load', markReady).on('tileerror', () => !cancelled && setMapState('error')).addTo(map)
+      }
+
+      primaryLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors',
+      }).on('load', markReady).on('tileerror', useFallbackLayer).addTo(map)
+      L.control.zoom({ position: 'topright' }).addTo(map)
+
+      const createPointIcon = (point) => {
+        const cluster = Boolean(point.isCluster)
+        const magnitude = Number(point.magnitude) || 0
+        const showMagnitude = !cluster && magnitude >= 4.5
+        const label = cluster ? point.clusterSize : showMagnitude ? `M${point.magnitudeLabel}` : ''
+        const size = cluster ? Math.min(34, 20 + Math.log2(point.clusterSize || 2) * 2.6) : showMagnitude ? 26 : 13
+        return L.divIcon({
+          className: 'world-map-point-icon',
+          html: `<span class="world-map-point ${cluster ? 'is-cluster' : showMagnitude ? 'is-major' : 'is-event'}" style="--point-size:${size}px">${label}</span>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        })
+      }
+
+      const renderEvents = (nextEvents) => {
+        eventsLayer.clearLayers()
+        getMapPoints(nextEvents).forEach((point) => {
+          const latitude = Number(point.latitude)
+          const longitude = Number(point.longitude)
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+          const marker = L.marker([latitude, longitude], { icon: createPointIcon(point), keyboard: false })
+          const tooltip = point.isCluster
+            ? `${point.clusterSize} sismos en esta zona · mayor M${point.magnitudeLabel}`
+            : `${point.place} · M${point.magnitudeLabel} · ${point.source}`
+          marker.bindTooltip(tooltip, { direction: 'top', offset: [0, -10], className: 'world-map-tooltip' })
+          marker.on('click', () => onSelectRef.current(point.clusterEvents?.[0] || point))
+          marker.addTo(eventsLayer)
+        })
+      }
+
+      const renderLocation = (nextLocation) => {
+        locationLayer.clearLayers()
+        if (!nextLocation) return
+        const latitude = Number(nextLocation.lat)
+        const longitude = Number(nextLocation.lon)
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+        L.circleMarker([latitude, longitude], { radius: 7, color: '#2f7255', weight: 2, fillColor: '#a6d4b5', fillOpacity: .95, interactive: false }).addTo(locationLayer)
+        L.marker([latitude, longitude], { icon: L.divIcon({ className: 'world-map-location-icon', html: '<span>Mi ubicación</span>', iconSize: [90, 22], iconAnchor: [45, 31] }), interactive: false, keyboard: false }).addTo(locationLayer)
+      }
+
+      renderEvents(events)
+      renderLocation(location)
+      renderEventsRef.current = renderEvents
+      updateLocationRef.current = renderLocation
+
+      const invalidateSize = () => map?.invalidateSize({ animate: false })
+      const resizeTimer = window.setTimeout(invalidateSize, 120)
+      const secondResizeTimer = window.setTimeout(invalidateSize, 420)
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(invalidateSize)
+        resizeObserver.observe(mapContainer.current)
+      }
+      map.whenReady(invalidateSize)
+      map._sismiResizeTimer = resizeTimer
+      map._sismiSecondResizeTimer = secondResizeTimer
     }
-    controls.addEventListener('change', handleControlsChange)
 
+    const frame = window.requestAnimationFrame(initializeMap)
+    const delayedFrame = window.setTimeout(initializeMap, 180)
     return () => {
-      controls.removeEventListener('change', handleControlsChange)
-      globe.pauseAnimation()
-      globe.renderer().dispose()
-      if (globeContainer.current) globeContainer.current.replaceChildren()
-      globeRef.current = null
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(delayedFrame)
+      resizeObserver?.disconnect()
+      if (map) {
+        window.clearTimeout(map._sismiResizeTimer)
+        window.clearTimeout(map._sismiSecondResizeTimer)
+        map.remove()
+      }
+      primaryLayer = null
+      fallbackLayer = null
+      mapRef.current = null
+      renderEventsRef.current = null
+      updateLocationRef.current = null
     }
   }, [])
 
   useEffect(() => {
-    if (globeRef.current) {
-      eventsRef.current = events
-      const nextPoints = getGlobePoints(events)
-      globeRef.current.pointsData(nextPoints)
-      globeRef.current.ringsData(getWaveEvents(events))
-      globeRef.current.labelsData(getGlobeLabels(locationRef.current, events, nextPoints))
-    }
+    renderEventsRef.current?.(events)
   }, [events])
 
   useEffect(() => {
     locationRef.current = location
-    if (globeRef.current) globeRef.current.labelsData(getGlobeLabels(location, eventsRef.current, getGlobePoints(eventsRef.current)))
+    updateLocationRef.current?.(location)
   }, [location])
 
   function focusLocation() {
-    const globe = globeRef.current
+    const map = mapRef.current
     const currentLocation = locationRef.current
-    if (!globe || !currentLocation) return
-    globe.pointOfView({ lat: currentLocation.lat, lng: currentLocation.lon, altitude: 0.07 }, 900)
+    if (!map || !currentLocation) return
+    map.flyTo([currentLocation.lat, currentLocation.lon], Math.max(map.getZoom(), 6), { duration: .7 })
   }
 
-  function resetGlobe() {
-    const globe = globeRef.current
-    const currentLocation = locationRef.current
-    if (!globe) return
-    globe.pointOfView({ lat: currentLocation?.lat || 0, lng: currentLocation?.lon || 0, altitude: 2.6 }, 700)
+  function resetMap() {
+    const map = mapRef.current
+    if (!map) return
+    map.flyTo([20, 0], 2, { duration: .7 })
   }
 
-  return <div className="world-globe-shell"><div className="world-globe" ref={globeContainer} aria-label="Globo terráqueo interactivo" /><div className="globe-actions"><button onClick={focusLocation} disabled={!location} aria-label="Acercar a mi ubicación"><Icon name="locate" size={13} />Mi ubicación</button><button onClick={resetGlobe} aria-label="Restablecer vista mundial"><Icon name="globe" size={13} />Vista mundial</button></div></div>
+  return <div className="world-map-shell"><div className="world-map" ref={mapContainer} aria-label="Mapa mundial interactivo" />{mapState === 'loading' && <div className="map-state"><Icon name="refresh" size={18} /><span>Cargando mapa…</span></div>}{mapState === 'error' && <div className="map-state is-error"><Icon name="map" size={18} /><span>No se pudo cargar el mapa. Revisa tu conexión.</span></div>}<div className="map-actions"><button onClick={focusLocation} disabled={!location} aria-label="Acercar a mi ubicación"><Icon name="locate" size={13} />Mi ubicación</button><button onClick={resetMap} aria-label="Restablecer vista mundial"><Icon name="globe" size={13} />Vista mundial</button></div><div className="map-credit">© OpenStreetMap contributors</div></div>
 }
 
 function EarthquakeMap({ event }) {

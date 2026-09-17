@@ -1,7 +1,7 @@
 {
   "name": "sismi",
   "private": true,
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -16,13 +16,10 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@vitejs/plugin-react": "latest",
-    "globe.gl": "^2.46.1",
     "leaflet": "^1.9.4",
     "react": "latest",
     "react-dom": "latest",
-    "topojson-client": "^3.1.0",
-    "vite": "latest",
-    "world-atlas": "^2.0.0"
+    "vite": "latest"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"

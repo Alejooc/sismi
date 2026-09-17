@@ -1,5 +1,14 @@
 # Historial de versiones
 
+## [0.1.23] — 2026-09-17
+
+### Mapa 2D con OpenStreetMap
+
+- Se reemplaza el globo terráqueo por un mapa interactivo de OpenStreetMap.
+- Se conservan el zoom, el desplazamiento, los grupos de eventos, los filtros y la línea de tiempo.
+- Se añaden etiquetas de ciudades y países, ubicación vigilada y controles para volver a la vista mundial.
+- Se eliminan del paquete las dependencias del globo 3D.
+
 ## [0.1.22] — 2026-08-27
 
 ### Mapa y modo Windows
