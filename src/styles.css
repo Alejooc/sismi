@@ -213,6 +213,26 @@ html[data-theme='dark'] .world-map .leaflet-tile-pane { filter: invert(.92) hue-
 .map-actions button { min-height: 29px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid rgba(176, 216, 188, .4); border-radius: 7px; background: color-mix(in srgb, var(--panel) 88%, transparent); color: var(--text); font-size: 9px; font-weight: 750; cursor: pointer; pointer-events: auto; box-shadow: 0 3px 10px rgba(20, 39, 29, .12); backdrop-filter: blur(7px); }
 .map-actions button:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .map-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.map-cluster-list { margin-top: 8px; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.map-cluster-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+.map-cluster-heading > div { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.map-cluster-icon { width: 27px; height: 27px; display: grid; place-items: center; flex: 0 0 27px; border-radius: 8px; background: var(--primary-soft); color: var(--primary); }
+.map-cluster-heading strong, .map-cluster-heading span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-cluster-heading strong { color: var(--text); font-size: 10px; }
+.map-cluster-heading span { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.map-cluster-heading .icon-button { width: 25px; height: 25px; flex: 0 0 25px; }
+.map-cluster-items { max-height: 218px; overflow-y: auto; scrollbar-width: none; }
+.map-cluster-items::-webkit-scrollbar { display: none; }
+.map-cluster-item { width: 100%; min-height: 43px; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.map-cluster-item:last-child { border-bottom: 0; }
+.map-cluster-item:hover { background: var(--surface-hover); }
+.map-cluster-item > .event-marker { width: 28px; height: 28px; flex: 0 0 28px; }
+.map-cluster-item > .event-marker strong { font-size: 9px; }
+.map-cluster-copy { min-width: 0; flex: 1; }
+.map-cluster-copy strong, .map-cluster-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-cluster-copy strong { color: var(--text); font-size: 9px; font-weight: 730; }
+.map-cluster-copy small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.map-cluster-item > svg { flex: 0 0 auto; color: var(--faint); }
 
 .content-stack, .history-panel, .settings-content, .details-sheet { scrollbar-width: none; }
 .content-stack::-webkit-scrollbar, .history-panel::-webkit-scrollbar, .settings-content::-webkit-scrollbar, .details-sheet::-webkit-scrollbar, .location-options::-webkit-scrollbar { display: none; }

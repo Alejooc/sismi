@@ -1,5 +1,12 @@
 # Historial de versiones
 
+## [0.1.24] — 2026-09-17
+
+### Grupos de sismos
+
+- Al tocar un grupo del mapa ahora se muestra la lista completa de sismos reunidos en esa zona.
+- Cada fila permite abrir el detalle del evento elegido sin perder el mapa.
+
 ## [0.1.23] — 2026-09-17
 
 ### Mapa 2D con OpenStreetMap

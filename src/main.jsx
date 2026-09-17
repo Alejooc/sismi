@@ -821,8 +821,11 @@ function EventRow({ event, detailed = false, distanceKm, onSelect }) {
 
 function GlobalMapPanel({ events, totalEvents, location, source, setSource, minMagnitude, setMinMagnitude, timeRange, setTimeRange, query, setQuery, onlyNearby, setOnlyNearby, timelineEvents, timelineAt, setTimelineAt, timelineMin, timelineMax, onSelect }) {
   const [timelinePlaying, setTimelinePlaying] = useState(false)
+  const [selectedCluster, setSelectedCluster] = useState(null)
   const hasTimeline = timelineMax > timelineMin
   const timelineValue = timelineAt === null ? timelineMax : timelineAt
+
+  useEffect(() => { setSelectedCluster(null) }, [events])
 
   useEffect(() => {
     if (!timelinePlaying || !hasTimeline) return undefined
@@ -875,23 +878,41 @@ function GlobalMapPanel({ events, totalEvents, location, source, setSource, minM
         <div className="map-timeline-scale"><span>{timelineMin ? formatTimelineMoment(timelineMin) : 'Sin fecha'}</span><span>{timelineMax ? formatTimelineMoment(timelineMax) : 'Sin fecha'}</span></div>
       </div>
       <div className="map-status"><span><i />{events.length ? `${events.length} sismos visibles` : 'No hay sismos con estos filtros'}</span><small>{timelineAt === null ? 'Mueve el mapa · acerca la vista · toca un punto para ver sus datos' : `${timelineEvents.length} en el periodo · desliza para recorrerlos`}</small></div>
-      <WorldEarthquakeMap events={events} location={location} onSelect={onSelect} />
+      <WorldEarthquakeMap events={events} location={location} onSelect={onSelect} onClusterSelect={setSelectedCluster} />
+      {selectedCluster && <MapClusterList cluster={selectedCluster} onSelect={onSelect} onClose={() => setSelectedCluster(null)} />}
       <div className="map-legend" aria-label="Leyenda de magnitudes"><span><i className="legend-dot low" />1.0–2.9</span><span><i className="legend-dot medium" />3.0–4.4</span><span><i className="legend-dot high" />4.5+</span><small>Los grupos reúnen eventos cercanos · ciudades y países vienen de OpenStreetMap</small></div>
       <div className="map-summary"><div><span>Último sismo mostrado</span><strong>{events[0]?.place || 'Sin eventos con estos filtros'}</strong></div><div><span>Magnitud</span><strong>{events[0] ? `M ${events[0].magnitudeLabel}` : '—'}</strong></div><div><span>Fuente</span><strong>{events[0]?.source || '—'}</strong></div></div>
     </div>
   )
 }
 
-function WorldEarthquakeMap({ events, location, onSelect }) {
+function MapClusterList({ cluster, onSelect, onClose }) {
+  const clusterEvents = [...(cluster.clusterEvents || [])].sort((first, second) => second.timestamp - first.timestamp)
+  return (
+    <section className="map-cluster-list" aria-label={`${cluster.clusterSize} sismos agrupados`}>
+      <div className="map-cluster-heading">
+        <div><span className="map-cluster-icon"><Icon name="activity" size={15} /></span><div><strong>{cluster.clusterSize} sismos en esta zona</strong><span>Mayor magnitud M{cluster.magnitudeLabel} · toca uno para ver su información</span></div></div>
+        <button className="icon-button" onClick={onClose} aria-label="Cerrar lista de sismos agrupados"><Icon name="close" size={15} /></button>
+      </div>
+      <div className="map-cluster-items">
+        {clusterEvents.map((event) => <button className="map-cluster-item" key={getEventKey(event)} onClick={() => onSelect(event)}><span className={`event-marker ${event.tone}`}><strong>{event.magnitudeLabel}</strong></span><span className="map-cluster-copy"><strong>{event.place}</strong><small>{event.timeLabel} · {event.depth} · {event.source}</small></span><Icon name="chevron" size={14} /></button>)}
+      </div>
+    </section>
+  )
+}
+
+function WorldEarthquakeMap({ events, location, onSelect, onClusterSelect }) {
   const mapContainer = useRef(null)
   const mapRef = useRef(null)
   const renderEventsRef = useRef(null)
   const updateLocationRef = useRef(null)
   const onSelectRef = useRef(onSelect)
+  const onClusterSelectRef = useRef(onClusterSelect)
   const locationRef = useRef(location)
   const [mapState, setMapState] = useState('loading')
 
   useEffect(() => { onSelectRef.current = onSelect }, [onSelect])
+  useEffect(() => { onClusterSelectRef.current = onClusterSelect }, [onClusterSelect])
 
   useEffect(() => {
     if (!mapContainer.current) return undefined
@@ -962,7 +983,13 @@ function WorldEarthquakeMap({ events, location, onSelect }) {
             ? `${point.clusterSize} sismos en esta zona · mayor M${point.magnitudeLabel}`
             : `${point.place} · M${point.magnitudeLabel} · ${point.source}`
           marker.bindTooltip(tooltip, { direction: 'top', offset: [0, -10], className: 'world-map-tooltip' })
-          marker.on('click', () => onSelectRef.current(point.clusterEvents?.[0] || point))
+          marker.on('click', () => {
+            if (point.isCluster) {
+              onClusterSelectRef.current?.(point)
+              return
+            }
+            onSelectRef.current(point)
+          })
           marker.addTo(eventsLayer)
         })
       }
