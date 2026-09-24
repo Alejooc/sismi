@@ -167,7 +167,7 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let _ = (startDate, endDate);
     let client = Client::builder()
-        .user_agent("Sismi/0.1.25")
+        .user_agent("Sismi/0.1.26")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -178,7 +178,7 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
 #[tauri::command]
 async fn fetch_usgs_events() -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.25")
+        .user_agent("Sismi/0.1.26")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()

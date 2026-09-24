@@ -1,5 +1,13 @@
 # Historial de versiones
 
+## [0.1.26] — 2026-09-24
+
+### Fuente oficial SGC y versión Android
+
+- El escritorio y Android consultan el mismo feed oficial de archivo del SGC.
+- Se corrigen la hora UTC, los segundos faltantes y el orden de latitud/longitud del feed SGC.
+- Se incorpora al repositorio la versión nativa de Android, el monitor de alertas remotas y su documentación.
+
 ## [0.1.25] — 2026-09-17
 
 ### Una versión más completa y práctica
