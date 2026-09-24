@@ -1,9 +1,17 @@
-export function isDesktopApp() {
+export function isTauriApp() {
   return typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__)
 }
 
+export function isAndroidApp() {
+  return isTauriApp() && /Android/i.test(window.navigator?.userAgent || '')
+}
+
+export function isDesktopApp() {
+  return isTauriApp() && !isAndroidApp()
+}
+
 export async function fetchSgcCatalog(startDate, endDate, signal) {
-  if (!isDesktopApp()) return null
+  if (!isTauriApp()) return null
   if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
 
   const { invoke } = await import('@tauri-apps/api/core')
@@ -14,7 +22,7 @@ export async function fetchSgcCatalog(startDate, endDate, signal) {
 }
 
 export async function fetchUsgsFeed(signal) {
-  if (!isDesktopApp()) return null
+  if (!isTauriApp()) return null
   if (signal?.aborted) throw new DOMException('La consulta fue cancelada', 'AbortError')
 
   const { invoke } = await import('@tauri-apps/api/core')
@@ -56,6 +64,12 @@ export async function listenTrayAction(handler) {
 }
 
 export async function requestNotificationPermission() {
+  if (isAndroidApp()) {
+    const { isPermissionGranted, requestPermission } = await import('@tauri-apps/plugin-notification')
+    if (await isPermissionGranted()) return true
+    return (await requestPermission()) === 'granted'
+  }
+
   // El aviso nativo registra su propia identidad de Windows al enviarse.
   // El plugin de permisos no reconoce correctamente el ejecutable portable.
   if (isDesktopApp()) return true
@@ -66,6 +80,12 @@ export async function requestNotificationPermission() {
 }
 
 export async function notifyDesktop(payload) {
+  if (isAndroidApp()) {
+    const { sendNotification } = await import('@tauri-apps/plugin-notification')
+    sendNotification({ title: payload.title, body: payload.body, largeBody: payload.body, group: 'sismi-earthquake-alerts' })
+    return
+  }
+
   if (isDesktopApp()) {
     const { invoke } = await import('@tauri-apps/api/core')
     await invoke('send_sismi_notification', { title: payload.title, body: payload.body, sound: payload.sound !== false })

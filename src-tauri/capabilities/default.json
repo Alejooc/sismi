@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Permisos predeterminados de Sismi",
   "windows": ["main"],
+  "platforms": ["windows", "linux", "macOS"],
   "permissions": [
     "core:default",
     "core:window:allow-hide",

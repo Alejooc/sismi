@@ -2,6 +2,14 @@ node_modules/
 dist/
 .vite/
 src-tauri/target/
+/android/.gradle/
+/android/local.properties
+/android/**/build/
+/android/app/google-services.json
+/server/node_modules/
+/server/data/
+/server/.env
+/server/secrets/
 *.log
 *.pdb
 .env

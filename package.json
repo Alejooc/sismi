@@ -7,8 +7,17 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
+    "tauri": "tauri",
     "desktop:dev": "scripts\\tauri.cmd dev",
-    "desktop:build": "scripts\\tauri.cmd build"
+    "desktop:build": "scripts\\tauri.cmd build",
+    "android:apk": "android\\gradlew.bat -p android assembleDebug",
+    "android:install": "android\\gradlew.bat -p android installDebug",
+    "android:aab": "android\\gradlew.bat -p android bundleRelease",
+    "android:test": "android\\gradlew.bat -p android testDebugUnitTest",
+    "tauri:android:init": "tauri android init",
+    "tauri:android:dev": "tauri android dev",
+    "tauri:android:apk": "tauri android build --apk --target aarch64",
+    "tauri:android:aab": "tauri android build --aab"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

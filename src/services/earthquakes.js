@@ -1,8 +1,8 @@
-import { fetchSgcCatalog, fetchUsgsFeed, isDesktopApp } from './desktop.js'
+import { fetchSgcCatalog, fetchUsgsFeed, isTauriApp } from './desktop.js'
 
 const USGS_DAILY_FEED = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'
-const SGC_FEED = 'https://api.sgc.gov.co/biweekly/biweekly_earthquakes'
-const SGC_SEARCH_PATH = '/sgc-catalog'
+const SGC_FEED = 'https://archive.sgc.gov.co/feed/v1.0.1/summary/five_days_all.json'
+const SGC_DEV_FEED = '/sgc-feed'
 const SOURCE_TIMEOUT_MS = 15000
 
 export const BOGOTA = { lat: 4.711, lon: -74.0721, radiusKm: 250 }
@@ -117,7 +117,7 @@ function normalizeEvent(feature) {
 }
 
 async function fetchUsgs(signal) {
-  if (isDesktopApp()) {
+  if (isTauriApp()) {
     try {
       return await fetchWithTimeout(fetchUsgsBrowser, signal, 6000)
     } catch (browserError) {
@@ -142,51 +142,28 @@ async function fetchUsgsBrowser(signal) {
 }
 
 async function fetchSgc(signal) {
-  const endDate = new Date()
-  endDate.setDate(endDate.getDate() + 1)
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - 7)
-
-  if (isDesktopApp()) {
+  if (isTauriApp()) {
     try {
-      const catalogEvents = await fetchSgcCatalog(toDateParam(startDate), toDateParam(endDate), signal)
-      return catalogEvents
-        .map((feature) => feature.geometry ? normalizeSgcEvent(feature) : normalizeSgcCatalogEvent(feature))
+      const feedEvents = await fetchSgcCatalog('', '', signal)
+      return feedEvents
+        .map(normalizeSgcEvent)
         .filter((event) => event.latitude !== null && event.longitude !== null)
     } catch (nativeError) {
       if (signal?.aborted) throw nativeError
       try {
-        return await fetchSgcBiweekly(startDate, endDate, signal)
+        return await fetchSgcArchiveFeed(signal)
       } catch (browserError) {
         throw new Error(`SGC no respondió por ninguna ruta: ${nativeError.message || 'consulta nativa'}; ${browserError.message || 'feed web'}`)
       }
     }
   }
 
-  if (import.meta.env?.DEV) {
-    return fetchSgcCatalogWeb(startDate, endDate, signal)
-  }
-
-  return fetchSgcBiweekly(startDate, endDate, signal)
+  return fetchSgcArchiveFeed(signal)
 }
 
-async function fetchSgcCatalogWeb(startDate, endDate, signal) {
-  const query = {
-    local_time_after: `${toDateParam(startDate)}T00:00:00.000Z`,
-    local_time_before: `${toDateParam(endDate)}T23:59:59.999Z`,
-  }
-  const firstPage = await fetchSgcPage(query, 1, signal)
-  const pageCount = Math.ceil(Number(firstPage.count || 0) / 100)
-  const remainingPages = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => fetchSgcPage(query, index + 2, signal)))
-  return [firstPage, ...remainingPages]
-    .flatMap((page) => page.rows)
-    .map(normalizeSgcCatalogEvent)
-    .filter((event) => event.latitude !== null && event.longitude !== null)
-}
-
-async function fetchSgcBiweekly(startDate, endDate, signal) {
-  const params = new URLSearchParams({ startdate: toDateParam(startDate), enddate: toDateParam(endDate), _: String(Date.now()) })
-  const response = await fetch(`${SGC_FEED}?${params}`, { signal, cache: 'no-store' })
+async function fetchSgcArchiveFeed(signal) {
+  const feedUrl = import.meta.env?.DEV ? SGC_DEV_FEED : SGC_FEED
+  const response = await fetch(`${feedUrl}?_=${Date.now()}`, { signal, cache: 'no-store' })
   if (!response.ok) throw new Error(`SGC respondió con ${response.status}`)
   const payload = await response.json()
   return payload.features
@@ -194,24 +171,11 @@ async function fetchSgcBiweekly(startDate, endDate, signal) {
     .filter((event) => event.latitude !== null && event.longitude !== null)
 }
 
-async function fetchSgcPage(query, page, signal) {
-  const response = await fetch(`${SGC_SEARCH_PATH}?page=${page}`, {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(query),
-    signal,
-    cache: 'no-store',
-  })
-  if (!response.ok) throw new Error(`SGC respondió con ${response.status}`)
-  const payload = await response.json()
-  return { count: payload.count, rows: payload.results?.results || [] }
-}
-
 function normalizeSgcEvent(feature) {
-  const [longitude, latitude, depth] = feature.geometry?.coordinates ?? [null, null, null]
+  const [latitude, longitude, depth] = feature.geometry?.coordinates ?? [null, null, null]
   const properties = feature.properties ?? {}
-  const magnitude = Number.isFinite(properties.mag) ? properties.mag : 0
-  const timestamp = parseSgcTime(properties.utcTime || properties.updated)
+  const magnitude = Number.isFinite(Number(properties.mag)) ? Number(properties.mag) : 0
+  const timestamp = parseSgcTime(properties.utcTime)
   const distanceKm = latitude === null || longitude === null ? null : haversineKm(BOGOTA.lat, BOGOTA.lon, latitude, longitude)
 
   return {
@@ -257,57 +221,6 @@ function normalizeSgcEvent(feature) {
   }
 }
 
-function normalizeSgcCatalogEvent(properties) {
-  const latitude = Number.isFinite(Number(properties.latitude)) ? Number(properties.latitude) : null
-  const longitude = Number.isFinite(Number(properties.longitude)) ? Number(properties.longitude) : null
-  const magnitude = Number.isFinite(Number(properties.magnitude)) ? Number(properties.magnitude) : 0
-  const timestamp = parseSgcTime(properties.utc_time || properties.updated)
-  const depth = Number.isFinite(Number(properties.depth)) ? Number(properties.depth) : 0
-  const distanceKm = latitude === null || longitude === null ? null : haversineKm(BOGOTA.lat, BOGOTA.lon, latitude, longitude)
-
-  return {
-    id: properties.id,
-    url: `https://www.sgc.gov.co/detallesismo/${properties.id}/resumen`,
-    place: properties.place || 'Ubicación no disponible',
-    magnitude,
-    magnitudeLabel: magnitude.toFixed(1),
-    magnitudeType: compactMagnitudeType(properties.mag_type),
-    depth: `${Math.round(Math.abs(depth))} km`,
-    timestamp,
-    time: formatTime(timestamp),
-    timeLabel: formatTimeLabel(timestamp),
-    source: 'SGC',
-    tone: magnitude >= 4.5 ? 'amber' : 'blue',
-    latitude,
-    longitude,
-    distanceKm,
-    metadata: {
-      eventId: properties.id,
-      title: properties.place || 'Evento sísmico',
-      status: properties.status || properties.event_type || '—',
-      agency: properties.agency || 'SGC',
-      utcTime: formatDateTime(timestamp, 'UTC'),
-      localTime: properties.local_time || formatDateTime(timestamp),
-      updated: null,
-      felt: properties.felt_report_records ?? null,
-      cdi: properties.cdi ?? null,
-      mmi: properties.mmi ?? null,
-      alert: null,
-      nst: properties.nst ?? null,
-      rms: properties.rms ?? null,
-      gap: properties.gap ?? null,
-      tsunami: null,
-      closestTowns: properties.closer_towns || null,
-      dmin: null,
-      significance: null,
-      networkCode: properties.agency || 'SGC',
-      eventCode: properties.id,
-      associatedEvents: null,
-      eventTypes: properties.event_type || null,
-    },
-  }
-}
-
 function dedupeEvents(events) {
   const uniqueEvents = []
   const sortedEvents = [...events].sort((a, b) => b.timestamp - a.timestamp)
@@ -332,13 +245,14 @@ function dedupeEvents(events) {
   return uniqueEvents.sort((a, b) => b.timestamp - a.timestamp)
 }
 
-function toDateParam(date) {
-  return date.toISOString().slice(0, 10)
-}
-
 function parseSgcTime(value) {
   if (!value) return Date.now()
-  const normalized = typeof value === 'string' ? value.replace(' ', 'T').replace(/(?<!Z)$/, 'Z') : value
+  if (typeof value !== 'string') return Number.isFinite(value) ? value : Date.now()
+  const normalizedValue = value.trim().replace(' ', 'T')
+  const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalizedValue)
+    ? `${normalizedValue}:00`
+    : normalizedValue
+  const normalized = /Z$|[+-]\d{2}:?\d{2}$/.test(withSeconds) ? withSeconds : `${withSeconds}Z`
   const timestamp = Date.parse(normalized)
   return Number.isFinite(timestamp) ? timestamp : Date.now()
 }

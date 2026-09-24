@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "android",
+  "description": "Permisos de Sismi para Android",
+  "windows": ["main"],
+  "platforms": ["android"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "notification:default",
+    "process:default"
+  ]
+}

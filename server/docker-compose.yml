@@ -1,0 +1,53 @@
+services:
+  sismi-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sismi-alert-monitor:latest
+    container_name: sismi-monitor
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+      DATA_FILE: /var/lib/sismi-monitor/state.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?Set FIREBASE_PROJECT_ID in .env}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+      PAIRING_CODE: ${PAIRING_CODE:?Set PAIRING_CODE in .env}
+      USGS_POLL_MS: ${USGS_POLL_MS:-45000}
+      SGC_POLL_MS: ${SGC_POLL_MS:-90000}
+      SGC_WINDOW_DAYS: ${SGC_WINDOW_DAYS:-2}
+      SGC_FEED_URL: ${SGC_FEED_URL:-}
+      SGC_RELAY_TOKEN: ${SGC_RELAY_TOKEN:-}
+      EVENT_MAX_AGE_MINUTES: ${EVENT_MAX_AGE_MINUTES:-30}
+    volumes:
+      - sismi_monitor_data:/var/lib/sismi-monitor
+      - ./secrets/firebase-service-account.json:/run/secrets/firebase-admin.json:ro
+    expose:
+      - "8787"
+    networks:
+      - npm_proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  npm_proxy:
+    external: true
+    name: ${NPM_DOCKER_NETWORK:-npm_proxy}
+
+volumes:
+  sismi_monitor_data:
+    name: sismi-monitor-data

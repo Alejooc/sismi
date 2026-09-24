@@ -13,6 +13,7 @@
 - Exportación del historial a CSV y opción de imprimirlo o guardarlo como PDF desde Windows.
 - Nuevos accesos directos en el menú de la bandeja: abrir Resumen, actualizar datos y activar o pausar avisos.
 - Mapa más limpio con filtros y línea de tiempo plegables, grupos de eventos y navegación integrada al detalle.
+- SGC ahora usa el feed oficial de archivo de cinco días, igual que Android, con hora UTC y coordenadas interpretadas correctamente.
 
 ### Correcciones y ajustes
 

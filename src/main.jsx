@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import { BOGOTA, countNearby, distanceBetween, fetchEarthquakes } from './services/earthquakes'
 import { subscribeEmscRealtime } from './services/emsc'
 import { searchLocations } from './services/locations'
-import { closeWindow as closeDesktopWindow, getStartWithWindows, isDesktopApp, listenTrayAction, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission, setStartWithWindows as setStartWithWindowsNative } from './services/desktop'
+import { closeWindow as closeDesktopWindow, getStartWithWindows, isAndroidApp, isDesktopApp, listenTrayAction, minimizeWindow as minimizeDesktopWindow, notifyDesktop, playAlertSound, requestNotificationPermission, setStartWithWindows as setStartWithWindowsNative } from './services/desktop'
 import { APP_VERSION, checkForSismiUpdate } from './services/updater'
 import './styles.css'
 
@@ -127,7 +127,7 @@ function Icon({ name, size = 18 }) {
 function App() {
   const [activeTab, setActiveTab] = useState('live')
   const [booting, setBooting] = useState(true)
-  const [notifications, setNotifications] = useState(() => readStoredValue('sismi-alerts', true))
+  const [notifications, setNotifications] = useState(() => readStoredValue('sismi-alerts', !isAndroidApp()))
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [safetyOpen, setSafetyOpen] = useState(false)
@@ -232,6 +232,29 @@ function App() {
     setAlertRules((current) => ({ ...current, [alertScope]: { ...current[alertScope], [field]: value } }))
   }
 
+  useEffect(() => {
+    if (!isAndroidApp()) return undefined
+    let active = true
+    let unlisten
+    import('@tauri-apps/api/app').then(({ onBackButtonPress }) => {
+      if (!active) return undefined
+      return onBackButtonPress(() => {
+        if (safetyOpen) setSafetyOpen(false)
+        else if (aboutOpen) setAboutOpen(false)
+        else if (settingsOpen) setSettingsOpen(false)
+        else if (activeAlert) setActiveAlert(null)
+        else if (selectedEvent) setSelectedEvent(null)
+        else if (printHistoryOpen) setPrintHistoryOpen(false)
+        else if (activeTab !== 'live') setActiveTab('live')
+        else void import('@tauri-apps/plugin-process').then(({ exit }) => exit()).catch(() => {})
+      }).then((listener) => {
+        if (active) unlisten = () => listener.unregister()
+        else void listener.unregister()
+      })
+    }).catch(() => {})
+    return () => { active = false; if (unlisten) unlisten() }
+  }, [aboutOpen, activeAlert, activeTab, printHistoryOpen, safetyOpen, selectedEvent, settingsOpen])
+
   useEffect(() => { notificationsRef.current = notifications; writeStoredValue('sismi-alerts', notifications) }, [notifications])
   useEffect(() => { writeStoredValue('sismi-saved-locations', savedLocations) }, [savedLocations])
   useEffect(() => { document.documentElement.dataset.textSize = textSize; writeStoredValue('sismi-text-size', textSize) }, [textSize])
@@ -310,7 +333,11 @@ function App() {
   }, [dataIsStale, doNotDisturb, notifications])
   useEffect(() => {
     if (isDesktopApp()) document.documentElement.classList.add('native-window')
-    return () => document.documentElement.classList.remove('native-window')
+    if (isAndroidApp()) document.documentElement.classList.add('android-app')
+    return () => {
+      document.documentElement.classList.remove('native-window')
+      document.documentElement.classList.remove('android-app')
+    }
   }, [])
   useEffect(() => {
     const fallbackTimer = window.setTimeout(() => {
@@ -431,7 +458,7 @@ function App() {
 
   async function toggleNotifications() {
     if (!notifications && !(await requestNotificationPermission())) {
-      setLocationStatus('Activa los avisos de Windows para recibir alertas.')
+      setLocationStatus(isAndroidApp() ? 'Activa las notificaciones de Sismi en Android para recibir alertas.' : 'Activa los avisos de Windows para recibir alertas.')
       return
     }
     setNotifications((current) => !current)
@@ -458,7 +485,7 @@ function App() {
     setTestNotificationStatus('Solicitando permiso…')
     const permissionGranted = await requestNotificationPermission()
     if (!permissionGranted) {
-      setTestNotificationStatus('Los avisos de Windows están desactivados. Revísalos en Configuración.')
+      setTestNotificationStatus(isAndroidApp() ? 'Las notificaciones están desactivadas. Revísalas en los ajustes de Android.' : 'Los avisos de Windows están desactivados. Revísalos en Configuración.')
       return
     }
     const testTime = Date.now()
@@ -607,8 +634,8 @@ function App() {
             <button className="icon-button" title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'} aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'} onClick={toggleTheme}><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} /></button>
             <button className="icon-button" title="Modo seguridad" aria-label="Abrir modo seguridad" onClick={() => { setAboutOpen(false); setSafetyOpen(true); setSettingsOpen(true) }}><Icon name="shield" size={16} /></button>
             <button className="icon-button" title="Configuración" aria-label="Configuración" onClick={() => { setAboutOpen(false); setSafetyOpen(false); setSettingsOpen(true) }}><Icon name="settings" size={17} /></button>
-            <button className="icon-button" title="Ocultar" aria-label="Ocultar en la bandeja" onClick={minimizeDesktopWindow}><Icon name="minus" size={17} /></button>
-            <button className="icon-button close-button" title="Cerrar" aria-label="Ocultar en la bandeja" onClick={closeDesktopWindow}><Icon name="close" size={16} /></button>
+            {!isAndroidApp() && <button className="icon-button" title="Ocultar" aria-label="Ocultar en la bandeja" onClick={minimizeDesktopWindow}><Icon name="minus" size={17} /></button>}
+            {!isAndroidApp() && <button className="icon-button close-button" title="Cerrar" aria-label="Ocultar en la bandeja" onClick={closeDesktopWindow}><Icon name="close" size={16} /></button>}
           </div>
         </header>
 
@@ -725,7 +752,7 @@ function SettingsDrawer({ location, savedLocations, locationNameDraft, setLocati
           <div className="setting-row quiet-setting-row"><div><strong>Horario silencioso</strong><span>Silencia avisos y sonidos durante este horario</span></div><button className={`toggle ${quietHoursEnabled ? 'on' : ''}`} onClick={() => setQuietHoursEnabled((current) => !current)} aria-label="Activar o desactivar horario silencioso" aria-pressed={quietHoursEnabled}><span /></button></div>
           {quietHoursEnabled && <div className="quiet-hours-fields"><label>Desde<input type="time" value={quietHoursStart} onChange={(event) => setQuietHoursStart(event.target.value)} aria-label="Inicio del horario silencioso" /></label><label>Hasta<input type="time" value={quietHoursEnd} onChange={(event) => setQuietHoursEnd(event.target.value)} aria-label="Fin del horario silencioso" /></label><p>Los sismos seguirán apareciendo en el historial, pero no enviarán aviso durante este horario.</p></div>}
           <p className="alert-rule-note"><Icon name="check" size={14} /><span>{alertScope === 'global' ? 'Todo el mundo avisa sin filtrar por distancia.' : `Mi zona respeta el radio de ${location.radiusKm} km.`} La magnitud mínima y la fuente elegida también se aplican.</span></p>
-          <div className="setting-row"><div><strong>Avisos en el escritorio</strong><span>Sonido y aviso de Windows</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar avisos"><span /></button></div>
+          <div className="setting-row"><div><strong>{isAndroidApp() ? 'Notificaciones de Sismi' : 'Avisos en el escritorio'}</strong><span>{isAndroidApp() ? 'Avisos y sonido del teléfono' : 'Sonido y aviso de Windows'}</span></div><button className={`toggle ${notifications ? 'on' : ''}`} onClick={toggleNotifications} aria-label="Activar o desactivar avisos"><span /></button></div>
           <button className="secondary-button" onClick={testNotification}><Icon name="bell" size={15} /> Probar aviso</button>
           <p className="test-alert-status" role="status">{testNotificationStatus || 'Haz una prueba para confirmar que todo funciona.'}</p>
           <div className="alert-safety-note"><Icon name="check" size={14} /><span>Un mismo evento no vuelve a avisarse mientras conserve su identificador.</span></div>
@@ -737,7 +764,7 @@ function SettingsDrawer({ location, savedLocations, locationNameDraft, setLocati
           <div className="text-size-setting"><div><strong>Tamaño del texto</strong><span>Ajústalo para leer con comodidad</span></div><div className="text-size-picker" role="group" aria-label="Tamaño del texto">{[['small', 'Pequeño'], ['normal', 'Normal'], ['large', 'Grande']].map(([value, label]) => <button key={value} className={textSize === value ? 'selected' : ''} onClick={() => setTextSize(value)} aria-pressed={textSize === value}>{label}</button>)}</div></div>
         </section>
         <section className="settings-section windows-section">
-          <div className="section-heading"><span className="section-icon"><Icon name="windows" size={16} /></span><div><strong>Modo Windows</strong><span>Controla cómo funciona Sismi en tu equipo</span></div></div>
+          <div className="section-heading"><span className="section-icon"><Icon name={isAndroidApp() ? 'phone' : 'windows'} size={16} /></span><div><strong>{isAndroidApp() ? 'Preferencias de Sismi' : 'Modo Windows'}</strong><span>{isAndroidApp() ? 'Controla los avisos y el estado de los datos' : 'Controla cómo funciona Sismi en tu equipo'}</span></div></div>
           <div className="setting-row windows-setting-row"><div><strong>Iniciar con Windows</strong><span>Se abrirá oculto y quedará en la bandeja</span></div><button className={`toggle ${startWithWindows ? 'on' : ''}`} onClick={toggleStartWithWindows} aria-label="Activar o desactivar inicio con Windows" aria-pressed={startWithWindows}><span /></button></div>
           <div className="setting-row"><div><strong>No molestar</strong><span>Detiene sonidos y avisos mientras esté activo</span></div><button className={`toggle ${doNotDisturb ? 'on' : ''}`} onClick={toggleDoNotDisturb} aria-label="Activar o desactivar No molestar" aria-pressed={doNotDisturb}><span /></button></div>
           <div className={`data-freshness ${dataIsStale ? 'is-stale' : ''}`}><span className="data-freshness-icon"><Icon name={dataIsStale ? 'alert' : lastSyncAt ? 'check' : 'refresh'} size={15} /></span><div><strong>{dataIsStale ? 'Datos atrasados' : lastSyncAt ? 'Datos al día' : 'Esperando datos'}</strong><span>{dataIsStale ? 'La aplicación lleva varios minutos sin recibir eventos nuevos.' : lastSyncAt ? `Última consulta: ${formatSyncTime(lastSyncAt)}` : 'Aún no hay una sincronización confirmada.'}</span></div></div>
@@ -847,14 +874,16 @@ function AboutPanel({ updateState, checkForAppUpdate }) {
       <section className="about-block"><span className="about-kicker">PARA QUÉ SIRVE</span><p>Revisa el historial, consulta los sismos en el globo mundial y recibe avisos según la zona y la magnitud que elijas.</p></section>
       <section className="about-block about-note"><span className="about-kicker">NOTA IMPORTANTE</span><p>Los datos y avisos dependen de la disponibilidad y el tiempo de publicación de las fuentes oficiales. Sismi es una herramienta informativa y no reemplaza las instrucciones de las autoridades.</p></section>
       <section className="about-block about-update-block">
-        <div className="about-update-heading"><div><span className="about-kicker">ACTUALIZACIONES</span><strong>{getUpdateTitle(updateState)}</strong></div><span className="about-update-version">v{APP_VERSION}</span></div>
-        {updateState.status === 'available' && <p className="about-update-notes">Nueva versión disponible: v{updateState.version}{updateState.notes ? ` · ${updateState.notes}` : ''}</p>}
-        {updateState.status === 'downloading' && <div className="about-update-progress"><span style={{ width: `${updateState.percent ?? 8}%` }} /></div>}
-        <button className="secondary-button about-update-button" disabled={updateState.status === 'checking' || updateState.status === 'downloading'} onClick={() => checkForAppUpdate({ install: updateState.status === 'available' })}>
-          <Icon name={updateState.status === 'available' ? 'refresh' : 'search'} size={15} />
-          {getUpdateAction(updateState)}
-        </button>
-        <p className="test-alert-status">Sismi busca nuevas versiones automáticamente.</p>
+        <div className="about-update-heading"><div><span className="about-kicker">ACTUALIZACIONES</span><strong>{isAndroidApp() ? 'Versión para Android' : getUpdateTitle(updateState)}</strong></div><span className="about-update-version">v{APP_VERSION}</span></div>
+        {isAndroidApp() ? <p className="test-alert-status">Las versiones de Android se instalan por separado y no afectan a Sismi para Windows.</p> : <>
+          {updateState.status === 'available' && <p className="about-update-notes">Nueva versión disponible: v{updateState.version}{updateState.notes ? ` · ${updateState.notes}` : ''}</p>}
+          {updateState.status === 'downloading' && <div className="about-update-progress"><span style={{ width: `${updateState.percent ?? 8}%` }} /></div>}
+          <button className="secondary-button about-update-button" disabled={updateState.status === 'checking' || updateState.status === 'downloading'} onClick={() => checkForAppUpdate({ install: updateState.status === 'available' })}>
+            <Icon name={updateState.status === 'available' ? 'refresh' : 'search'} size={15} />
+            {getUpdateAction(updateState)}
+          </button>
+          <p className="test-alert-status">Sismi busca nuevas versiones automáticamente.</p>
+        </>}
       </section>
       <div className="about-footer"><img src="/sismi-logo.png" alt="" /><span>Avisos sísmicos claros, sin interrumpir tu trabajo.</span></div>
     </div>

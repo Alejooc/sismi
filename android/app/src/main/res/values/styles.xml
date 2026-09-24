@@ -1,0 +1,19 @@
+<resources>
+    <style name="Theme.Sismi.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F3F6F3</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/sismi_logo</item>
+        <item name="windowSplashScreenAnimationDuration">450</item>
+        <item name="postSplashScreenTheme">@style/Theme.Sismi</item>
+    </style>
+
+    <style name="Theme.Sismi" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#397A5D</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">#F7F9F7</item>
+        <item name="android:navigationBarColor">#F7F9F7</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#F7F9F7</item>
+    </style>
+</resources>

@@ -1,0 +1,24 @@
+[Unit]
+Description=Sismi earthquake alert monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sismi-monitor
+Group=sismi-monitor
+WorkingDirectory=/opt/sismi/server
+EnvironmentFile=/etc/sismi-monitor/sismi.env
+Environment=NODE_ENV=production
+Environment=DATA_FILE=/var/lib/sismi-monitor/state.json
+ExecStart=/usr/bin/node /opt/sismi/server/src/index.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sismi-monitor
+
+[Install]
+WantedBy=multi-user.target

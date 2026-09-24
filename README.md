@@ -37,6 +37,8 @@ También se conserva una descarga portable cuando la publicación la incluye, pe
 
 La guía completa está en [Descargar y usar Sismi en Windows](docs/DESCARGAR-WINDOWS.md).
 
+La versión adicional para teléfonos se está creando como una app nativa en **Kotlin y Jetpack Compose**. Windows continúa sin cambios y se publica por separado. El avance está en [Sismi para Android](docs/ANDROID.md); la puesta en marcha de alertas remotas se detalla en [la guía del monitor Ubuntu y Firebase](docs/ANDROID_REMOTE_ALERTS.md).
+
 ## Ejecutar el proyecto desde el código fuente
 
 ### Requisitos
@@ -44,6 +46,7 @@ La guía completa está en [Descargar y usar Sismi en Windows](docs/DESCARGAR-WI
 - Windows 10 u 11 con WebView2.
 - Node.js 20 o superior.
 - Rust y las herramientas de compilación de Visual Studio para compilar la aplicación de escritorio.
+- Para Android: Android Studio, Android SDK y JDK 21. Abre `android/` en Android Studio o consulta [la guía de Android](docs/ANDROID.md).
 
 ### Desarrollo web
 
@@ -68,6 +71,14 @@ npm run desktop:build
 El instalador se genera en `src-tauri/target/release/bundle/nsis/`. Para crear artefactos de actualización localmente se necesita la clave privada de firma en las variables `TAURI_SIGNING_PRIVATE_KEY` y `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. El flujo recomendado para publicar es GitHub Actions.
 
 Consulta [Actualizaciones automáticas](docs/ACTUALIZACIONES.md) para configurar la publicación firmada.
+
+### Compilar Android
+
+```powershell
+npm run android:apk
+```
+
+Esto genera un APK de prueba. La versión nativa de Android se desarrolla y publica por separado de Windows.
 
 ## Fuentes de información
 

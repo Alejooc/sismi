@@ -55,7 +55,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; }
-body { min-width: 320px; min-height: 100vh; margin: 0; background: var(--page); }
+body { min-width: 320px; min-height: 100vh; min-height: 100dvh; margin: 0; background: var(--page); }
 button, input { font: inherit; }
 button { color: inherit; }
 svg { display: block; flex: 0 0 auto; }
@@ -686,9 +686,24 @@ html[data-theme='dark'] .event-map .leaflet-tile-pane { filter: invert(.92) hue-
 .panel-footer { min-height: 34px; display: flex; align-items: center; justify-content: space-between; flex: 0 0 34px; gap: 8px; padding: 0 16px; border-top: 1px solid var(--border); background: var(--surface); color: var(--faint); font-size: 9px; }
 .panel-footer span:first-child { min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
 
+.android-app, .android-app body, .android-app #root { width: 100%; height: 100%; min-height: 100%; overflow: hidden; }
+.android-app .desktop-stage { width: 100%; height: 100vh; height: 100dvh; min-height: 0; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); place-items: stretch; background: var(--panel); }
+.android-app .panel { width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+.android-app .app-bar { height: calc(62px + env(safe-area-inset-top, 0px)); min-height: calc(62px + env(safe-area-inset-top, 0px)); flex-basis: calc(62px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); padding-right: 14px; padding-left: 16px; -webkit-app-region: no-drag; }
+.android-app .window-actions .icon-button { width: 42px; height: 44px; }
+.android-app .tabs { height: 50px; flex-basis: 50px; padding-right: 10px; padding-left: 10px; }
+.android-app .tabs button { height: 50px; flex: 1; justify-content: center; padding: 0 8px; font-size: 13px; }
+.android-app .tabs button::after { right: 10px; left: 10px; }
+.android-app .panel-footer { min-height: calc(36px + env(safe-area-inset-bottom, 0px)); flex-basis: calc(36px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); font-size: 10px; }
+.android-app .windows-setting-row { display: none; }
+.android-app .settings-drawer { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.android-app button, .android-app [role='button'] { touch-action: manipulation; }
+.android-app .map-panel-toggle, .android-app .mini-refresh-button, .android-app .theme-choice, .android-app .about-entry { min-height: 44px; }
+.android-app input, .android-app select { font-size: 16px; }
+
 @media (max-width: 480px) {
   .desktop-stage { padding: 0; place-items: stretch; }
-  .panel { width: 100%; height: 100vh; border-radius: 0; }
+  .panel { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; }
   .native-window .panel { border-radius: 14px; }
 }
 
