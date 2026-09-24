@@ -167,7 +167,7 @@ fn send_sismi_notification(title: String, body: String, sound: bool) -> Result<(
 async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Value>, String> {
     let _ = (startDate, endDate);
     let client = Client::builder()
-        .user_agent("Sismi/0.1.26")
+        .user_agent("Sismi/0.1.27")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -178,7 +178,7 @@ async fn fetch_sgc_events(startDate: String, endDate: String) -> Result<Vec<Valu
 #[tauri::command]
 async fn fetch_usgs_events() -> Result<Vec<Value>, String> {
     let client = Client::builder()
-        .user_agent("Sismi/0.1.26")
+        .user_agent("Sismi/0.1.27")
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(6))
         .build()
@@ -261,7 +261,10 @@ async fn fetch_sgc_archive_feed(client: &Client) -> Result<Vec<Value>, String> {
         .get("https://archive.sgc.gov.co/feed/v1.0.1/summary/five_days_all.json")
         .header("Accept", "application/geo+json, application/json, text/plain, */*")
         .header("Referer", "https://www.sgc.gov.co/sismos")
-        .header("Origin", "https://www.sgc.gov.co")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (compatible; SismiMonitor/1.0) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+        )
         .send()
         .await
         .map_err(|error| format!("No se pudo consultar el feed oficial SGC: {error}"))?

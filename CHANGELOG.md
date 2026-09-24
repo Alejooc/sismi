@@ -1,5 +1,11 @@
 # Historial de versiones
 
+## [0.1.27] — 2026-09-24
+
+### Corrección de conexión SGC
+
+- La consulta nativa de Windows usa los encabezados compatibles con el feed oficial del SGC para evitar respuestas HTTP 403.
+
 ## [0.1.26] — 2026-09-24
 
 ### Fuente oficial SGC y versión Android
